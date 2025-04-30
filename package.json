@@ -1,12 +1,26 @@
 {
   "name": "electron-test",
   "version": "1.0.0",
-  "main": "main.js",
+  "main": "dist/main.js",
   "license": "MIT",
   "dependencies": {
     "electron": "^35.1.4"
   },
+  "devDependencies": {
+    "@types/node": "^20.10.5",
+    "@webgpu/types": "^0.1.60",
+    "electron-rebuild": "^3.2.9",
+    "nodemon": "^3.0.2",
+    "rimraf": "^5.0.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  },
   "scripts": {
-    "start": "execute.bat"
+    "start": "npm run build && execute.bat",
+    "build": "tsc",
+    "watch": "tsc -w",
+    "clean": "rimraf dist",
+    "rebuild": "electron-rebuild",
+    "dev": "nodemon --exec \"npm run start\" --ext ts --watch src"
   }
 }
