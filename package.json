@@ -1,0 +1,12 @@
+{
+  "name": "electron-test",
+  "version": "1.0.0",
+  "main": "main.js",
+  "license": "MIT",
+  "dependencies": {
+    "electron": "^35.1.4"
+  },
+  "scripts": {
+    "start": "execute.bat"
+  }
+}

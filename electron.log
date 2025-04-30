@@ -1,0 +1,21 @@
+[50924:0429/010726.266:INFO:CONSOLE:914] "%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+  Policy set or a policy with "unsafe-eval" enabled. This exposes users of
+  this app to unnecessary security risks.
+
+For more information and help, consult
+https://electronjs.org/docs/tutorial/security.
+This warning will not show up
+once the app is packaged.", source: node:electron/js2c/renderer_init (914)
+[50924:0429/010726.307:INFO:CONSOLE:90] "[object Object]", source: file:///D:/ElectronTest/renderer.js (90)
+[50924:0429/010727.843:ERROR:CONSOLE:725] "Request Autofill.enable failed. {"code":-32601,"message":"'Autofill.enable' wasn't found"}", source: devtools://devtools/bundled/core/protocol_client/InspectorBackend.js (725)
+[50924:0429/010727.844:ERROR:CONSOLE:725] "Request Autofill.setAddresses failed. {"code":-32601,"message":"'Autofill.setAddresses' wasn't found"}", source: devtools://devtools/bundled/core/protocol_client/InspectorBackend.js (725)
+[50924:0429/010728.437:ERROR:CONSOLE:1] "Uncaught (in promise) SyntaxError: Unexpected token 'H', "HTTP/1.1 4"... is not valid JSON", source: devtools://devtools/bundled/devtools_app.html?remoteBase=https://chrome-devtools-frontend.appspot.com/serve_file/@0000000000000000000000000000000000000000/&can_dock=true&toolbarColor=rgba(223,223,223,1)&textColor=rgba(0,0,0,1)&experiments=true (1)
+[50924:0429/010730.216:INFO:CONSOLE:1] "%ccomp is ready background:green", source: https://app.singular.live/build/878.54da66a2.js (1)
+[50924:0429/010730.218:INFO:CONSOLE:0] "Mixed Content: The page at 'https://app.singular.live/singularplayer/output?bgcolor=&width=&height=&aspect=16:9' was loaded over HTTPS, but requested an insecure element 'http://www.jeffreysward.com/image/tp02aw600.gif'. This request was automatically upgraded to HTTPS, For more information see https://blog.chromium.org/2019/10/no-more-mixed-messages-about-https.html", source: https://app.singular.live/singularplayer/output?bgcolor=&width=&height=&aspect=16:9 (0)
+[50924:0429/010730.249:INFO:CONSOLE:6] "Slow network is detected. See https://www.chromestatus.com/feature/5636954674692096 for more details. Fallback font will be used while loading: https://fonts.gstatic.com/s/opensans/v40/memSYaGs126MiZpBA-UvWbX2vVnXBbObj2OVZyOOSr4dVJWUgsjZ0B4gaVI.woff2", source: https://cdnjs.cloudflare.com/ajax/libs/webfont/1.6.26/webfontloader.js (6)
+[50924:0429/010730.275:INFO:CONSOLE:90] "[object Object]", source: file:///D:/ElectronTest/renderer.js (90)
+[50924:0429/010730.670:INFO:CONSOLE:20] "fps: 0", source: SingularOverlayScript.js (20)
+[50924:0429/010730.775:INFO:CONSOLE:90] "[object Object]", source: file:///D:/ElectronTest/renderer.js (90)
+[50924:0429/010731.209:INFO:CONSOLE:90] "[object Object]", source: file:///D:/ElectronTest/renderer.js (90)
+[50924:0429/010732.169:INFO:CONSOLE:20] "fps: 3", source: SingularOverlayScript.js (20)
+[50924:0429/010733.670:INFO:CONSOLE:20] "fps: 3", source: SingularOverlayScript.js (20)
