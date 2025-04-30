@@ -8,6 +8,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.10.5",
+    "@types/offscreencanvas": "^2019.7.3",
     "@webgpu/types": "^0.1.60",
     "electron-rebuild": "^3.2.9",
     "nodemon": "^3.0.2",

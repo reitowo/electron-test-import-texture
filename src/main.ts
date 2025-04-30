@@ -43,7 +43,7 @@ const createWindow = (): void => {
 
     // const spout = new SpoutOutput("electron");
 
-    osr.webContents.setFrameRate(2);
+    osr.webContents.setFrameRate(60);
 
     osr.webContents.on("did-finish-load", () => {
         console.log(`osr pid: ${osr.webContents.getOSProcessId()}`);
@@ -58,7 +58,7 @@ const createWindow = (): void => {
 
         setTimeout(() => {
             texture.release();
-        }, 5000);
+        }, 50);
     });
 
     osr.loadURL(
