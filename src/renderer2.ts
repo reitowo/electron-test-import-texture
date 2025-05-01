@@ -213,9 +213,10 @@ console.log("WebGL renderer initialized.");
 // @ts-ignore
 (window as any).getVideoFrame = webUtils.getVideoFrameForSharedTexture;
 
-ipcRenderer.on("shared-texture", async (_event, textureInfo) => {
+ipcRenderer.on("shared-texture", async (_event, textureInfo, dupInfo) => {
     // In WebGL, we don't directly use the shared texture handle like in WebGPU.
     // Instead, we request the VideoFrame associated with it.
+    Object.assign(textureInfo, dupInfo);
     console.debug('Received shared texture info, requesting VideoFrame:', textureInfo);
     try {
         const frame = await (window as any).getVideoFrame(textureInfo) as VideoFrame;

@@ -43,7 +43,7 @@ const createWindow = (): void => {
 
     // const spout = new SpoutOutput("electron");
 
-    osr.webContents.setFrameRate(60);
+    osr.webContents.setFrameRate(1);
 
     osr.webContents.on("did-finish-load", () => {
         console.log(`osr pid: ${osr.webContents.getOSProcessId()}`);
@@ -53,8 +53,11 @@ const createWindow = (): void => {
         const texture = event.texture!;
         // spout.updateTexture(texture.textureInfo);
         
-        (texture.textureInfo as any).handleOwnerProcess = process.pid;
-        win.webContents.send("shared-texture", texture.textureInfo);
+        // @ts-ignore
+        const dup = texture.prepareRemoteImport({
+            // remoteProcessId: win.webContents.getOSProcessId(),
+        });
+        win.webContents.send("shared-texture", texture.textureInfo, dup);
 
         setTimeout(() => {
             texture.release();
