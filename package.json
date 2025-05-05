@@ -17,11 +17,8 @@
     "typescript": "^5.3.3"
   },
   "scripts": {
-    "start": "npm run build && execute.bat",
+    "start": "npm run build && D:/Electron/src/out/Debug/electron.exe --enable-logging --no-sandbox ./dist/main.js",
     "build": "tsc",
-    "watch": "tsc -w",
-    "clean": "rimraf dist",
-    "rebuild": "electron-rebuild",
-    "dev": "nodemon --exec \"npm run start\" --ext ts --watch src"
+    "watch": "tsc -w"
   }
 }

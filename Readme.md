@@ -1,2 +1,3 @@
-1. Change path according to your local in `execute.bat`
-2. Run `window.renderFrame(window.getVideoFrame(window.lastTexture))` in browser console.
+1. Change path according to your local in `package.json`
+2. Switch between WebGPU and WebGL by changing the referencing script in `index.html`
+3. Run

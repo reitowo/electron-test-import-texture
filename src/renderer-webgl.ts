@@ -209,10 +209,12 @@ gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 (window as any).textures.onSharedTexture(async (id, imported) => {
     try {
         const frame = imported.getVideoFrame() as VideoFrame;
-        logWithTime("rendering frame", id);
-        (window as any).renderFrame(frame);
-        logWithTime("frame closing", id)
-        frame.close()
+        logWithTime("renderer rendering frame", id)
+
+        await (window as any).renderFrame(frame);
+        logWithTime("renderer frame closing", id)
+
+        frame.close();
     } catch (error) {
         console.error("Error getting VideoFrame:", error);
     }
