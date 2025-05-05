@@ -3,6 +3,12 @@
 import { webUtils } from "electron";
 import { ipcRenderer } from "electron/renderer";
 
+export function logWithTime(message: string, ...optionalParams: any[]) {
+    const date = new Date();
+    const timestamp = `${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}.${date.getMilliseconds()}`;
+    // console.log(`[${timestamp}] ${message}`, ...optionalParams);
+}
+
 // Import WebGPU utilities
 const canvas = document.createElement("canvas");
 canvas.width = 1280;
@@ -20,11 +26,10 @@ const initWebGpu = async (): Promise<void> => {
     const format = navigator.gpu.getPreferredCanvasFormat();
     context.configure({ device, format });
 
-    (window as any).renderFrame = (frame: VideoFrame): void => {
+    (window as any).renderFrame = async (frame: VideoFrame): Promise<void> => {
         try {
             // Create external texture
             const externalTexture = device.importExternalTexture({ source: frame });
-            console.log(externalTexture);
 
             // Create bind group layout, correctly specifying the external texture type
             const bindGroupLayout = device.createBindGroupLayout({
@@ -53,34 +58,34 @@ const initWebGpu = async (): Promise<void> => {
                 vertex: {
                     module: device.createShaderModule({
                         code: `
-            @vertex
-            fn main(@builtin(vertex_index) VertexIndex : u32) -> @builtin(position) vec4<f32> {
-              var pos = array<vec2<f32>, 6>(
-                vec2<f32>(-1.0, -1.0),
-                vec2<f32>(1.0, -1.0),
-                vec2<f32>(-1.0, 1.0),
-                vec2<f32>(-1.0, 1.0),
-                vec2<f32>(1.0, -1.0),
-                vec2<f32>(1.0, 1.0)
-              );
-              return vec4<f32>(pos[VertexIndex], 0.0, 1.0);
-            }
-          `,
+                            @vertex
+                            fn main(@builtin(vertex_index) VertexIndex : u32) -> @builtin(position) vec4<f32> {
+                            var pos = array<vec2<f32>, 6>(
+                                vec2<f32>(-1.0, -1.0),
+                                vec2<f32>(1.0, -1.0),
+                                vec2<f32>(-1.0, 1.0),
+                                vec2<f32>(-1.0, 1.0),
+                                vec2<f32>(1.0, -1.0),
+                                vec2<f32>(1.0, 1.0)
+                            );
+                            return vec4<f32>(pos[VertexIndex], 0.0, 1.0);
+                            }
+                        `,
                     }),
                     entryPoint: "main",
                 },
                 fragment: {
                     module: device.createShaderModule({
                         code: `
-            @group(0) @binding(0) var extTex: texture_external;
-            @group(0) @binding(1) var mySampler: sampler;
+                            @group(0) @binding(0) var extTex: texture_external;
+                            @group(0) @binding(1) var mySampler: sampler;
 
-            @fragment
-            fn main(@builtin(position) fragCoord: vec4<f32>) -> @location(0) vec4<f32> {
-              let texCoord = fragCoord.xy / vec2<f32>(1280.0, 720.0);
-              return textureSampleBaseClampToEdge(extTex, mySampler, texCoord);
-            }
-          `,
+                            @fragment
+                            fn main(@builtin(position) fragCoord: vec4<f32>) -> @location(0) vec4<f32> {
+                            let texCoord = fragCoord.xy / vec2<f32>(1280.0, 720.0);
+                            return textureSampleBaseClampToEdge(extTex, mySampler, texCoord);
+                            }
+                        `,
                     }),
                     entryPoint: "main",
                     targets: [{ format }],
@@ -125,7 +130,6 @@ const initWebGpu = async (): Promise<void> => {
 
             // Submit commands
             device.queue.submit([commandEncoder.finish()]);
-            console.log('Rendering complete');
         } catch (error) {
             console.error('Rendering error:', error);
         }
@@ -137,9 +141,16 @@ initWebGpu().catch(err => {
 });
 
 // @ts-ignore
-(window as any).getVideoFrame = webUtils.getVideoFrameForSharedTexture;
+(window as any).textures.onSharedTexture(async (id, imported) => {
+    try {
+        const frame = imported.getVideoFrame() as VideoFrame;
+        logWithTime("renderer rendering frame", id)
 
-ipcRenderer.on("shared-texture", async (_event, texture) => {
-    (window as any).lastTexture = texture;
-    console.debug('Received shared texture:', texture);
+        await (window as any).renderFrame(frame);
+        logWithTime("renderer frame closing", id)
+
+        frame.close();
+    } catch (error) {
+        console.error("Error getting VideoFrame:", error);
+    }
 });

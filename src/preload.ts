@@ -1,21 +1,29 @@
 /// <reference types="@types/offscreencanvas" />
 
-import { webUtils } from "electron";
+// @ts-ignore
+import { sharedTexture } from "electron";
 import { ipcRenderer, contextBridge } from "electron/renderer";
+
+export function logWithTime(message: string, ...optionalParams: any[]) {
+    const date = new Date();
+    const timestamp = `${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}.${date.getMilliseconds()}`;
+    // console.log(`[${timestamp}] ${message}`, ...optionalParams);
+}
 
 contextBridge.exposeInMainWorld("textures", {
     // @ts-ignore
-    getVideoFrame: (e) => {
-        console.log(e);
-        // @ts-ignore
-        const ret = webUtils.getVideoFrameForSharedTexture(e);
-        console.log(ret);
-        return ret;
-    },
-    // @ts-ignore
-    onSharedTexture: (cb) => ipcRenderer.on("shared-texture", cb),
-    getBlob: () => {
-        return new Blob([new Uint8Array(4)], { type: "image/png" });
-    }
+    onSharedTexture: (cb: (id: string, data: any) => Promise<void>) => ipcRenderer.on("shared-texture", async (e, id, transfer) => {
+        logWithTime("preload received send shared texture:", id);
+
+        const imported = sharedTexture.finishTransferSharedTexture(transfer);
+        logWithTime("preload finished imported", id);
+
+        await cb(id, imported);
+
+        imported.release(() => {
+            ipcRenderer.send("shared-texture-done", id);
+        });
+        logWithTime("preload released imported", id);
+    })
 });
 

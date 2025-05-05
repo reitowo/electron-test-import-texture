@@ -1,7 +1,10 @@
 /// <reference types="@types/offscreencanvas" />
 
-import { webUtils } from "electron";
-import { ipcRenderer } from "electron/renderer";
+export function logWithTime(message: string, ...optionalParams: any[]) {
+    const date = new Date();
+    const timestamp = `${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}.${date.getMilliseconds()}`;
+    // console.log(`[${timestamp}] ${message}`, ...optionalParams);
+}
 
 // Create canvas and get WebGL context
 const canvas = document.createElement("canvas");
@@ -197,34 +200,18 @@ gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
             gl!.drawArrays(gl!.TRIANGLE_STRIP, offset, vertexCount);
         }
         console.log('WebGL Rendering complete');
-        frame.close(); // Close the frame when done with it
-
     } catch (error) {
         console.error('WebGL Rendering error:', error);
-        if (frame) {
-            frame.close(); // Ensure frame is closed even on error
-        }
     }
 };
 
-console.log("WebGL renderer initialized.");
-
-// --- IPC Handling (similar to WebGPU version) ---
 // @ts-ignore
-(window as any).getVideoFrame = webUtils.getVideoFrameForSharedTexture;
-
-ipcRenderer.on("shared-texture", async (_event, textureInfo, dupInfo) => {
-    // In WebGL, we don't directly use the shared texture handle like in WebGPU.
-    // Instead, we request the VideoFrame associated with it.
-    Object.assign(textureInfo, dupInfo);
-    console.debug('Received shared texture info, requesting VideoFrame:', textureInfo);
+(window as any).textures.onSharedTexture(async (id, imported) => {
     try {
-        const frame = await (window as any).getVideoFrame(textureInfo) as VideoFrame;
-        if (frame) {
-            (window as any).renderFrame(frame);
-        } else {
-            console.warn("Could not get VideoFrame for handle:", textureInfo);
-        }
+        const frame = imported.getVideoFrame() as VideoFrame;
+        logWithTime("rendering frame", id);
+        (window as any).renderFrame(frame);
+        logWithTime("frame closing", id)
         frame.close()
     } catch (error) {
         console.error("Error getting VideoFrame:", error);
