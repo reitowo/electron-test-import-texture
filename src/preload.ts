@@ -1,7 +1,7 @@
 /// <reference types="@types/offscreencanvas" />
 
 // @ts-ignore
-import { sharedTexture } from "electron";
+import { sharedTexture, nativeImage } from "electron";
 import { ipcRenderer, contextBridge } from "electron/renderer";
 
 export function logWithTime(message: string, ...optionalParams: any[]) {

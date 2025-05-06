@@ -26,9 +26,6 @@ const createWindow = (): void => {
         width: 1600,
         height: 900,
         webPreferences: {
-            sandbox: false,
-            contextIsolation: true,
-            nodeIntegration: false,
             preload: path.join(__dirname, "preload.js"),
         },
     });
@@ -45,11 +42,11 @@ const createWindow = (): void => {
     const osr = new BrowserWindow({
         width: 1280,
         height: 720,
+        show: false,
         webPreferences: {
-            sandbox: false,
             offscreen: {
                 useSharedTexture: true,
-            } as any,
+            },
         },
     });
 
