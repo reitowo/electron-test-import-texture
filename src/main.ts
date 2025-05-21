@@ -31,7 +31,7 @@ const createWindow = (): void => {
         },
     });
 
-    win.webContents.setFrameRate(120);
+    win.webContents.setFrameRate(60);
 
     win.loadFile(path.join(__dirname, "../index.html"));
     win.webContents.openDevTools();
@@ -40,10 +40,11 @@ const createWindow = (): void => {
         console.log(`win pid: ${win.webContents.getOSProcessId()}`);
     });
 
+    // Create offscreen windows for texture sources
     for (let i = 0; i < 16; ++i) {
         const osr = new BrowserWindow({
-            width: 1920,
-            height: 1080,
+            width: 1280,
+            height: 720,
             show: false,
             webPreferences: {
                 backgroundThrottling: false,
@@ -53,7 +54,8 @@ const createWindow = (): void => {
             },
         });
 
-        osr.webContents.setFrameRate(240);
+        // Set frame rate to 60fps for source textures
+        osr.webContents.setFrameRate(60);
 
         osr.webContents.on("did-finish-load", () => {
             console.log(`osr pid: ${osr.webContents.getOSProcessId()}`);
@@ -78,12 +80,10 @@ const createWindow = (): void => {
                     capturedTextures.delete(id);
                 }
             }
-        })
+        });
 
         osr.webContents.on("paint", (event: Electron.WebContentsPaintEventParams, dirty: Electron.Rectangle, image: Electron.NativeImage) => {
             const texture = event.texture!;
-            console.log(texture);
-            
             const imported = sharedTexture.importSharedTexture(texture.textureInfo);
 
             const id = randomUUID();

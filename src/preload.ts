@@ -12,18 +12,19 @@ export function logWithTime(message: string, ...optionalParams: any[]) {
 
 contextBridge.exposeInMainWorld("textures", {
     // @ts-ignore
-    onSharedTexture: (cb: (id: string, idx: number, data: any) => Promise<void>) => ipcRenderer.on("shared-texture", async (e, id, idx, transfer) => {
-        logWithTime("preload received send shared texture:", id);
+    onSharedTexture: (cb: (id: string, idx: number, imported: any) => Promise<void>) => ipcRenderer.on("shared-texture", async (e, id, idx, transfer) => {
+        logWithTime("preload received shared texture:", id, "idx:", idx);
 
         const imported = sharedTexture.finishTransferSharedTexture(transfer);
-        logWithTime("preload finished imported", id);
+        logWithTime("preload finished imported", id, "idx:", idx);
 
-        await cb(id, idx, imported);
+        cb(id, idx, imported);
+    }),
 
-        imported.release(() => {
-            ipcRenderer.send("shared-texture-done", id);
-        });
-        logWithTime("preload released imported", id);
-    })
+    // Add method to notify main process texture has been released
+    notifyTextureReleased: (id: string) => {
+        ipcRenderer.send("shared-texture-done", id);
+        logWithTime("preload notified main process texture released:", id);
+    }
 });
 
