@@ -4,7 +4,8 @@
   "main": "dist/main.js",
   "license": "MIT",
   "dependencies": {
-    "electron": "^35.1.4"
+    "electron": "^35.1.4",
+    "vuedraggable": "^4.1.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.5",

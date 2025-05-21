@@ -26,6 +26,7 @@ const createWindow = (): void => {
         width: 1600,
         height: 900,
         webPreferences: {
+            backgroundThrottling: false,
             preload: path.join(__dirname, "preload.js"),
         },
     });
@@ -39,63 +40,64 @@ const createWindow = (): void => {
         console.log(`win pid: ${win.webContents.getOSProcessId()}`);
     });
 
-    const osr = new BrowserWindow({
-        width: 1280,
-        height: 720,
-        show: false,
-        webPreferences: {
-            offscreen: {
-                useSharedTexture: true,
+    for (let i = 0; i < 16; ++i) {
+        const osr = new BrowserWindow({
+            width: 1920,
+            height: 1080,
+            show: false,
+            webPreferences: {
+                backgroundThrottling: false,
+                offscreen: {
+                    useSharedTexture: true,
+                },
             },
-        },
-    });
-
-    // const spout = new SpoutOutput("electron");
-
-    osr.webContents.setFrameRate(240);
-
-    osr.webContents.on("did-finish-load", () => {
-        console.log(`osr pid: ${osr.webContents.getOSProcessId()}`);
-    });
-
-    const capturedTextures = new Map<string, any>();
-
-    ipcMain.on("shared-texture-done", (event, id) => {
-        const data = capturedTextures.get(id);
-        if (data) {
-            logWithTime("main released shared texture:", id);
-            const { imported, texture } = data;
-
-            imported.release(() => {
-                logWithTime("main released source texture:", id);
-                texture.release();
-            });
-
-            capturedTextures.delete(id);
-        }
-    })
-
-    osr.webContents.on("paint", (event: Electron.WebContentsPaintEventParams, dirty: Electron.Rectangle, image: Electron.NativeImage) => {
-        const texture = event.texture!;
-
-        // @ts-ignore
-        const imported = sharedTexture.importSharedTexture({
-            ...texture.textureInfo,
-            ntHandle: texture.textureInfo.sharedTextureHandle
         });
 
-        const transfer = imported.startTransferSharedTexture()
+        osr.webContents.setFrameRate(240);
 
-        const id = randomUUID();
-        capturedTextures.set(id, { imported, texture });
+        osr.webContents.on("did-finish-load", () => {
+            console.log(`osr pid: ${osr.webContents.getOSProcessId()}`);
+        });
 
-        logWithTime("start send shared texture:", id);
-        win.webContents.send("shared-texture", id, transfer);
-    });
+        const capturedTextures = new Map<string, any>();
 
-    osr.loadURL(
-        "https://app.singular.live/output/6W76ei5ZNekKkYhe8nw5o8/Output?aspect=16:9"
-    );
+        ipcMain.on("shared-texture-done", (event, id) => {
+            const data = capturedTextures.get(id);
+            if (data) {
+                data.count--;
+
+                if (data.count == 0) {
+                    logWithTime("main released shared texture:", id);
+                    const { imported, texture } = data;
+
+                    imported.release(() => {
+                        logWithTime("main released source texture:", id);
+                        texture.release();
+                    });
+
+                    capturedTextures.delete(id);
+                }
+            }
+        })
+
+        osr.webContents.on("paint", (event: Electron.WebContentsPaintEventParams, dirty: Electron.Rectangle, image: Electron.NativeImage) => {
+            const texture = event.texture!;
+            console.log(texture);
+            
+            const imported = sharedTexture.importSharedTexture(texture.textureInfo);
+
+            const id = randomUUID();
+            capturedTextures.set(id, { count: 0, imported, texture });
+
+            const transfer = imported.startTransferSharedTexture()
+            win.webContents.send("shared-texture", id, i, transfer);
+            capturedTextures.get(id)!.count++;
+        });
+
+        osr.loadURL(
+            "https://app.singular.live/output/6W76ei5ZNekKkYhe8nw5o8/Output?aspect=16:9"
+        );
+    }
 };
 
 app.whenReady().then(() => {

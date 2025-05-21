@@ -9,29 +9,77 @@ export function logWithTime(message: string, ...optionalParams: any[]) {
     // console.log(`[${timestamp}] ${message}`, ...optionalParams);
 }
 
-// Import WebGPU utilities
-const canvas = document.createElement("canvas");
-canvas.width = 1280;
-canvas.height = 720;
-canvas.style.width = "1280px";
-canvas.style.height = "720px";
+// 定义网格大小
+const GRID_SIZE = 4; // 4x4网格
+const CANVAS_WIDTH = 320; // 1280 / 4
+const CANVAS_HEIGHT = 180; // 720 / 4
 
-document.body.appendChild(canvas);
-const context = canvas.getContext("webgpu") as GPUCanvasContext;
+// 创建画布容器
+const canvasContainer = document.createElement("div");
+canvasContainer.style.display = "grid";
+canvasContainer.style.gridTemplateColumns = `repeat(${GRID_SIZE}, ${CANVAS_WIDTH}px)`;
+canvasContainer.style.gridTemplateRows = `repeat(${GRID_SIZE}, ${CANVAS_HEIGHT}px)`;
+canvasContainer.style.gap = "2px";
+canvasContainer.style.width = `${CANVAS_WIDTH * GRID_SIZE + (GRID_SIZE - 1) * 2}px`;
+canvasContainer.style.height = `${CANVAS_HEIGHT * GRID_SIZE + (GRID_SIZE - 1) * 2}px`;
+document.body.appendChild(canvasContainer);
+
+// 创建画布和上下文数组
+const canvases: HTMLCanvasElement[] = [];
+const contexts: GPUCanvasContext[] = [];
+const renderStates: { device: GPUDevice | null, format: GPUTextureFormat | null }[] = [];
+
+// 初始化16个画布
+for (let i = 0; i < GRID_SIZE * GRID_SIZE; i++) {
+    const canvas = document.createElement("canvas");
+    canvas.width = CANVAS_WIDTH;
+    canvas.height = CANVAS_HEIGHT;
+    canvas.style.width = `${CANVAS_WIDTH}px`;
+    canvas.style.height = `${CANVAS_HEIGHT}px`;
+    canvas.id = `canvas-${i}`;
+    
+    canvasContainer.appendChild(canvas);
+    canvases.push(canvas);
+    
+    const context = canvas.getContext("webgpu") as GPUCanvasContext;
+    contexts.push(context);
+    
+    renderStates.push({ device: null, format: null });
+}
 
 const initWebGpu = async (): Promise<void> => {
-    // Configure WebGPU context
+    // 配置所有WebGPU上下文
     const adapter = await navigator.gpu.requestAdapter();
     const device = await adapter!.requestDevice();
     const format = navigator.gpu.getPreferredCanvasFormat();
-    context.configure({ device, format });
+    
+    // 初始化所有画布的WebGPU
+    for (let i = 0; i < contexts.length; i++) {
+        contexts[i].configure({ device, format });
+        renderStates[i].device = device;
+        renderStates[i].format = format;
+    }
 
-    (window as any).renderFrame = async (frame: VideoFrame): Promise<void> => {
+    (window as any).renderFrame = async (frame: VideoFrame, canvasIdx: number = 0): Promise<void> => {
+        // 确保索引有效
+        if (canvasIdx < 0 || canvasIdx >= contexts.length) {
+            console.error(`Invalid canvas index: ${canvasIdx}`);
+            return;
+        }
+        
+        const context = contexts[canvasIdx];
+        const { device, format } = renderStates[canvasIdx];
+        
+        if (!device || !format) {
+            console.error(`WebGPU not initialized for canvas ${canvasIdx}`);
+            return;
+        }
+        
         try {
-            // Create external texture
+            // 创建外部纹理
             const externalTexture = device.importExternalTexture({ source: frame });
 
-            // Create bind group layout, correctly specifying the external texture type
+            // 创建绑定组布局，正确指定外部纹理类型
             const bindGroupLayout = device.createBindGroupLayout({
                 entries: [
                     {
@@ -47,12 +95,12 @@ const initWebGpu = async (): Promise<void> => {
                 ]
             });
 
-            // Create pipeline layout
+            // 创建管线布局
             const pipelineLayout = device.createPipelineLayout({
                 bindGroupLayouts: [bindGroupLayout]
             });
 
-            // Create render pipeline
+            // 创建渲染管线
             const pipeline = device.createRenderPipeline({
                 layout: pipelineLayout,
                 vertex: {
@@ -82,7 +130,7 @@ const initWebGpu = async (): Promise<void> => {
 
                             @fragment
                             fn main(@builtin(position) fragCoord: vec4<f32>) -> @location(0) vec4<f32> {
-                            let texCoord = fragCoord.xy / vec2<f32>(1280.0, 720.0);
+                            let texCoord = fragCoord.xy / vec2<f32>(${CANVAS_WIDTH}.0, ${CANVAS_HEIGHT}.0);
                             return textureSampleBaseClampToEdge(extTex, mySampler, texCoord);
                             }
                         `,
@@ -93,7 +141,7 @@ const initWebGpu = async (): Promise<void> => {
                 primitive: { topology: "triangle-list" },
             });
 
-            // Create bind group
+            // 创建绑定组
             const bindGroup = device.createBindGroup({
                 layout: bindGroupLayout,
                 entries: [
@@ -108,7 +156,7 @@ const initWebGpu = async (): Promise<void> => {
                 ]
             });
 
-            // Create command encoder and render pass
+            // 创建命令编码器和渲染通道
             const commandEncoder = device.createCommandEncoder();
             const textureView = context.getCurrentTexture().createView();
             const renderPass = commandEncoder.beginRenderPass({
@@ -122,16 +170,16 @@ const initWebGpu = async (): Promise<void> => {
                 ],
             });
 
-            // Set pipeline and bind group
+            // 设置管线和绑定组
             renderPass.setPipeline(pipeline);
             renderPass.setBindGroup(0, bindGroup);
-            renderPass.draw(6); // Draw a rectangle composed of two triangles
+            renderPass.draw(6); // 绘制由两个三角形组成的矩形
             renderPass.end();
 
-            // Submit commands
+            // 提交命令
             device.queue.submit([commandEncoder.finish()]);
         } catch (error) {
-            console.error('Rendering error:', error);
+            console.error(`Rendering error on canvas ${canvasIdx}:`, error);
         }
     };
 };
@@ -141,13 +189,17 @@ initWebGpu().catch(err => {
 });
 
 // @ts-ignore
-(window as any).textures.onSharedTexture(async (id, imported) => {
+(window as any).textures.onSharedTexture(async (id, idx, imported) => {
     try {
+        // 使用idx来决定渲染到哪个画布上
+        // 确保idx在有效范围内
+        const canvasIdx = idx % (GRID_SIZE * GRID_SIZE);
+        
         const frame = imported.getVideoFrame() as VideoFrame;
-        logWithTime("renderer rendering frame", id)
+        logWithTime(`renderer rendering frame on canvas ${canvasIdx}`, id);
 
-        await (window as any).renderFrame(frame);
-        logWithTime("renderer frame closing", id)
+        await (window as any).renderFrame(frame, canvasIdx);
+        logWithTime(`renderer frame closing for canvas ${canvasIdx}`, id);
 
         frame.close();
     } catch (error) {
