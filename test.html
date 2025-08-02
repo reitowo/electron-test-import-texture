@@ -251,7 +251,8 @@
         // Clean up object URL
         URL.revokeObjectURL(url);
 
-        await processImage(img);
+        // Draw to 2D canvas instead of WebGPU processing
+        await drawImageTo2DCanvas(img);
 
       } catch (error) {
         updateStatus(`Failed to load image file: ${error.message}`);
@@ -259,7 +260,7 @@
       }
     }
 
-    // Load AVIF image and create WebGPU texture
+    // Load AVIF image and draw to 2D canvas
     async function loadImage(url) {
       try {
         updateStatus(`Loading image from ${url}...`);
@@ -284,7 +285,8 @@
           img.src = url;
         });
 
-        await processImage(img);
+        // Draw to 2D canvas instead of WebGPU processing
+        await drawImageTo2DCanvas(img);
 
       } catch (error) {
         updateStatus(`Failed to load image: ${error.message}`);
@@ -292,25 +294,39 @@
       }
     }
 
-    // Float32 to Float16 conversion helper
-    function float32ToFloat16(f32) {
-      const f32Array = new Float32Array([f32]);
-      const u32Array = new Uint32Array(f32Array.buffer);
-      const u32 = u32Array[0];
+    // Draw image to 2D canvas and render via WebGPU
+    async function drawImageTo2DCanvas(img) {
+      try {
+        updateStatus(`Processing image: ${img.width}x${img.height}`);
 
-      const sign = (u32 >> 31) & 0x1;
-      let exp = ((u32 >> 23) & 0xff) - 127 + 15;
-      const frac = (u32 >> 13) & 0x3ff;
+        const patternCanvas = document.getElementById('2d-canvas');
+        patternCanvas.configureHighDynamicRange({ mode: "extended" });
+        const ctx = patternCanvas.getContext('2d', {
+          colorSpace: 'srgb-linear',
+          colorType: 'float16'
+        });
 
-      // Handle special cases
-      if (exp <= 0) {
-        return (sign << 15); // Zero/underflow
+        // Keep canvas size fixed
+        const canvasWidth = patternCanvas.width;
+        const canvasHeight = patternCanvas.height;
+
+        // Clear and draw image scaled to fit canvas
+        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+        ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+
+        updateStatus(`Image drawn to 2D canvas: ${img.width}x${img.height} -> ${canvasWidth}x${canvasHeight}`);
+
+        const imageData = ctx.getImageData(0, 0, patternCanvas.width, patternCanvas.height, {
+          colorSpace: 'srgb-linear',
+          pixelFormat: 'rgba-float16'
+        });
+
+        // Render current canvas content via WebGPU
+        await drawImageData(imageData, 'HDR image rendered successfully');
+      } catch (error) {
+        updateStatus(`Failed to process image: ${error.message}`);
+        console.error("Image processing error:", error);
       }
-      if (exp >= 31) {
-        return (sign << 15) | 0x7c00 | (frac > 0 ? 1 : 0); // Infinity/NaN
-      }
-
-      return (sign << 15) | (exp << 10) | frac;
     }
 
     // Create HDR test pattern with canvas (original flow)
@@ -318,12 +334,9 @@
       updateStatus('Creating HDR test pattern...');
 
       try {
-        // Create offscreen canvas for HDR pattern
-        const patternCanvas = document.getElementById('2d-canvas');
-        patternCanvas.width = 640;
-        patternCanvas.height = 360;
-
         // Use HDR context with extended sRGB linear color space
+        const patternCanvas = document.getElementById('2d-canvas');
+        patternCanvas.configureHighDynamicRange({ mode: "extended" });
         const ctx = patternCanvas.getContext('2d', {
           colorSpace: 'srgb-linear',
           colorType: 'float16'
@@ -366,12 +379,10 @@
         ctx.fillStyle = `color(srgb-linear ${whiteBrightness} ${whiteBrightness} ${whiteBrightness})`;
         ctx.fillRect(centerX, centerY, centerW, centerH);
 
-        const imageData = ctx.getImageData(0, 0, patternCanvas.width, patternCanvas.height, {
+        return ctx.getImageData(0, 0, patternCanvas.width, patternCanvas.height, {
           colorSpace: 'srgb-linear',
           pixelFormat: 'rgba-float16'
         });
-
-        return imageData;
       } catch (error) {
         // Fallback: create pattern using regular canvas if HDR context fails
         console.warn('HDR context failed, using fallback:', error);
@@ -379,16 +390,13 @@
       }
     }
 
-    // Draw HDR test pattern and render with WebGPU
-    async function drawHDRTestPattern() {
+    // Common function to render ImageData via WebGPU
+    async function drawImageData(imageData, statusMessage = 'Image rendered successfully') {
       try {
-        updateStatus('Drawing HDR test pattern...');
+        return;
 
-        // 1. 用canvas绘制HDR测试图案
-        const imageData = createHDRTestPattern();
-
-        // 4. 用Float16数据创建VideoFrame
-        console.log(imageData)
+        // Create VideoFrame from ImageData
+        console.log('Creating VideoFrame from ImageData...');
         const videoFrame = new VideoFrame(imageData.data, {
           format: 'RGBAF16',
           timestamp: 0,
@@ -403,23 +411,47 @@
           }
         });
 
-        // Import external texture with HDR settings - same as renderer-webgpu.ts
+        console.log('VideoFrame created:', videoFrame);
+
+        // Import external texture with HDR settings
+        console.log('Importing external texture...');
         currentTexture = device.importExternalTexture({
           source: videoFrame,
           colorSpace: 'srgb-linear' // HDR color space
         });
 
+        console.log('External texture imported:', currentTexture);
+
         // Enable reload button
         reloadBtn.disabled = false;
 
-        // Render pattern
+        // Render 
+        console.log('Starting render...');
         render();
-        updateStatus('HDR test pattern rendered successfully via WebGPU VideoFrame');
+        updateStatus(`${statusMessage} via WebGPU VideoFrame`);
 
         // Clean up VideoFrame after render
         setTimeout(() => {
+          console.log('Closing VideoFrame...');
           videoFrame.close();
         }, 100);
+
+      } catch (error) {
+        updateStatus(`Failed to render ImageData: ${error.message}`);
+        console.error("ImageData rendering error:", error);
+      }
+    }
+
+    // Draw HDR test pattern and render with WebGPU
+    async function drawHDRTestPattern() {
+      try {
+        updateStatus('Drawing HDR test pattern...');
+
+        // Create HDR test pattern (draws to canvas)
+        const imageData = createHDRTestPattern();
+
+        // Render current canvas content via WebGPU
+        await drawImageData(imageData, 'HDR test pattern rendered successfully');
 
       } catch (error) {
         updateStatus(`Failed to create HDR test pattern: ${error.message}`);
@@ -427,50 +459,28 @@
       }
     }
 
-    // Process loaded image and create WebGPU external texture
-    async function processImage(img) {
-      updateStatus(`Image loaded: ${img.width}x${img.height}`);
-
-      try {
-        const bitmap = await createImageBitmap(img)
-
-        // Create VideoFrame from image - same approach as renderer-webgpu.ts
-        const videoFrame = new VideoFrame(bitmap, { timestamp: 0 });
-
-        // Import external texture with HDR settings - same as renderer-webgpu.ts
-        currentTexture = device.importExternalTexture({
-          source: videoFrame,
-          colorSpace: 'srgb-linear' // HDR color space
-        });
-
-        // Enable reload button
-        reloadBtn.disabled = false;
-
-        // Render image
-        render();
-        updateStatus('HDR image rendered successfully via WebGPU VideoFrame');
-
-        // Clean up VideoFrame after render
-        setTimeout(() => {
-          videoFrame.close();
-        }, 100);
-
-      } catch (error) {
-        updateStatus(`Failed to create VideoFrame: ${error.message}`);
-        console.error("VideoFrame creation error:", error);
-      }
-    }
-
     // Render function - simplified from renderer-webgpu.ts
     function render() {
+      console.log('Render called, checking components:');
+      console.log('  device:', !!device);
+      console.log('  context:', !!context);
+      console.log('  pipeline:', !!pipeline);
+      console.log('  sampler:', !!sampler);
+      console.log('  currentTexture:', !!currentTexture);
+
       if (!device || !context || !pipeline || !sampler || !currentTexture) {
+        console.error('Missing required components for rendering');
         return;
       }
 
       try {
+        console.log('Creating command encoder...');
         const commandEncoder = device.createCommandEncoder();
+
+        console.log('Getting current texture view...');
         const textureView = context.getCurrentTexture().createView();
 
+        console.log('Beginning render pass...');
         const renderPass = commandEncoder.beginRenderPass({
           colorAttachments: [
             {
@@ -482,9 +492,11 @@
           ],
         });
 
+        console.log('Setting pipeline...');
         renderPass.setPipeline(pipeline);
 
         // Create bind group with current external texture - same as renderer-webgpu.ts
+        console.log('Creating bind group...');
         const bindGroup = device.createBindGroup({
           layout: pipeline.getBindGroupLayout(0),
           entries: [
@@ -499,13 +511,18 @@
           ]
         });
 
+        console.log('Setting bind group and drawing...');
         renderPass.setBindGroup(0, bindGroup);
         renderPass.draw(6, 1, 0, 0);
         renderPass.end();
 
+        console.log('Submitting command buffer...');
         device.queue.submit([commandEncoder.finish()]);
+
+        console.log('Render completed successfully');
       } catch (error) {
         console.error("Render error:", error);
+        updateStatus(`Render error: ${error.message}`);
       }
     }
 
