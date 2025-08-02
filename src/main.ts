@@ -23,36 +23,35 @@ console.log('main pid: ', process.pid);
 
 const createWindow = (): void => {
     const win = new BrowserWindow({
-        width: 1600,
-        height: 900,
         webPreferences: {
             backgroundThrottling: false,
             preload: path.join(__dirname, "preload.js"),
         },
     });
 
-    win.webContents.setFrameRate(60);
+    win.setSize(1920, 1080);
 
     win.loadFile(path.join(__dirname, "../index.html"));
-    win.webContents.openDevTools();
+    // win.loadURL("https://www.youtube.com/watch?v=3L0Ph8KV0Tk")
 
     win.webContents.on("did-finish-load", () => {
         console.log(`win pid: ${win.webContents.getOSProcessId()}`);
     });
 
     // Create offscreen windows for texture sources
-    for (let i = 0; i < 16; ++i) {
+    for (let i = 0; i < 1; ++i) {
         const osr = new BrowserWindow({
-            width: 1280,
-            height: 720,
             show: false,
             webPreferences: {
+                sandbox: false,
                 backgroundThrottling: false,
                 offscreen: {
                     useSharedTexture: true,
                 },
             },
         });
+
+        osr.setSize(1920, 1080);
 
         // Set frame rate to 60fps for source textures
         osr.webContents.setFrameRate(60);
@@ -84,6 +83,8 @@ const createWindow = (): void => {
 
         osr.webContents.on("paint", (event: Electron.WebContentsPaintEventParams, dirty: Electron.Rectangle, image: Electron.NativeImage) => {
             const texture = event.texture!;
+            console.log(texture.textureInfo)   
+
             const imported = sharedTexture.importSharedTexture(texture.textureInfo);
 
             const id = randomUUID();
@@ -94,8 +95,20 @@ const createWindow = (): void => {
             capturedTextures.get(id)!.count++;
         });
 
+        // osr.loadURL(
+        //     "https://app.singular.live/output/6W76ei5ZNekKkYhe8nw5o8/Output?aspect=16:9"
+        // );
+
+        // osr.loadURL(
+        //     "file:///D:/ElectronTest/video.html"
+        // );
+
+        // osr.loadURL(
+        //     "https://gregbenzphotography.com/hdr-gain-map-gallery/"
+        // );
+
         osr.loadURL(
-            "https://app.singular.live/output/6W76ei5ZNekKkYhe8nw5o8/Output?aspect=16:9"
+            "https://www.hdrify.com/"
         );
     }
 };

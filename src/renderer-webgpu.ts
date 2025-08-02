@@ -10,7 +10,7 @@ export function logWithTime(message: string, ...optionalParams: any[]) {
 }
 
 // Define grid size and canvas dimensions
-const GRID_SIZE = 4; // 4x4 grid
+const GRID_SIZE = 1; // 4x4 grid
 const CANVAS_WIDTH = 1920;
 const CANVAS_HEIGHT = 1080;
 const CELL_WIDTH = CANVAS_WIDTH / GRID_SIZE;
@@ -43,13 +43,15 @@ let context: GPUCanvasContext;
 const initWebGpu = async (): Promise<void> => {
     const adapter = await navigator.gpu.requestAdapter();
     device = await adapter!.requestDevice();
-    format = navigator.gpu.getPreferredCanvasFormat();
+    format = "rgba16float";
 
     context = canvas.getContext("webgpu") as GPUCanvasContext;
     context.configure({
         device,
         format,
-        alphaMode: "premultiplied"
+        //@ts-ignore
+        colorSpace: 'srgb-linear',
+        toneMapping: { mode: "extended" }
     });
 
     // Pre-create pipeline and sampler to avoid recreation every frame
@@ -338,7 +340,11 @@ initWebGpu().then(() => {
     }
 
     const frame = imported.getVideoFrame() as VideoFrame;
-    const texture = device.importExternalTexture({ source: frame }) as GPUExternalTexture;
+    const texture = device.importExternalTexture({ 
+        source: frame,
+        //@ts-ignore
+        colorSpace: 'srgb-linear',
+    }) as GPUExternalTexture;
 
     // Only store what we need for rendering
     storedTextures.push({ id, idx, imported, frame, texture });
