@@ -7,7 +7,7 @@ import process from "node:process";
 export function logWithTime(message: string, ...optionalParams: any[]) {
     const date = new Date();
     const timestamp = `${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}.${date.getMilliseconds()}`;
-    // console.log(`[${timestamp}] ${message}`, ...optionalParams);
+    console.log(`[${timestamp}] ${message}`, ...optionalParams);
 }
 
 // Use require to import the native module because it doesn't have TypeScript type definitions
@@ -62,28 +62,59 @@ const createWindow = (): void => {
 
         const capturedTextures = new Map<string, any>();
 
-        ipcMain.on("shared-texture-done", (event, id) => {
+        // ipcMain.on("shared-texture-done", (event, id) => {
+        //     const data = capturedTextures.get(id);
+        //     if (data) {
+        //         data.count--;
+
+        //         if (data.count == 0) {
+        //             logWithTime("main released shared texture:", id);
+        //             const { imported, texture } = data;
+
+        //             imported.release(() => {
+        //                 logWithTime("main released source texture:", id);
+        //                 texture.release();
+        //             });
+
+        //             capturedTextures.delete(id);
+        //         }
+        //     }
+        // });
+
+        // osr.webContents.on("paint", (event: Electron.WebContentsPaintEventParams, dirty: Electron.Rectangle, image: Electron.NativeImage) => {
+        //     const texture = event.texture!;
+        //     console.log(texture.textureInfo)   
+
+        //     const imported = sharedTexture.importSharedTexture(texture.textureInfo);
+
+        //     const id = randomUUID();
+        //     capturedTextures.set(id, { count: 0, imported, texture });
+
+        //     const transfer = imported.startTransferSharedTexture()
+        //     win.webContents.send("shared-texture", id, i, transfer);
+
+        //     capturedTextures.get(id)!.count++;
+        // });
+
+        ipcMain.on("shared-texture-sync-token", (event, id, syncToken) => {
             const data = capturedTextures.get(id);
             if (data) {
-                data.count--;
+                logWithTime("main released shared texture:", id, syncToken);
+                const { imported, texture }: { imported: Electron.SharedTextureImported, texture: Electron.OffscreenSharedTexture } = data;
 
-                if (data.count == 0) {
-                    logWithTime("main released shared texture:", id);
-                    const { imported, texture } = data;
+                imported.setReleaseSyncToken(syncToken)
+                imported.release(() => {
+                    logWithTime("main released source texture:", id);
+                    texture.release();
+                });
 
-                    imported.release(() => {
-                        logWithTime("main released source texture:", id);
-                        texture.release();
-                    });
-
-                    capturedTextures.delete(id);
-                }
+                capturedTextures.delete(id);
             }
         });
 
         osr.webContents.on("paint", (event: Electron.WebContentsPaintEventParams, dirty: Electron.Rectangle, image: Electron.NativeImage) => {
             const texture = event.texture!;
-            console.log(texture.textureInfo)   
+            console.log(texture.textureInfo)
 
             const imported = sharedTexture.importSharedTexture(texture.textureInfo);
 
@@ -92,8 +123,6 @@ const createWindow = (): void => {
 
             const transfer = imported.startTransferSharedTexture()
             win.webContents.send("shared-texture", id, i, transfer);
-
-            capturedTextures.get(id)!.count++;
         });
 
         // osr.loadURL(
