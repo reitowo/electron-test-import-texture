@@ -110,6 +110,8 @@ const createWindow = (): void => {
         osr.loadURL(
             "https://www.hdrify.com/"
         );
+
+        win.webContents.openDevTools();
     }
 };
 

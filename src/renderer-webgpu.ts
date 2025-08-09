@@ -340,7 +340,7 @@ initWebGpu().then(() => {
     }
 
     const frame = imported.getVideoFrame() as VideoFrame;
-    const texture = device.importExternalTexture({ 
+    const texture = device.importExternalTexture({
         source: frame,
         //@ts-ignore
         colorSpace: 'srgb-linear',

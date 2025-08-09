@@ -5,6 +5,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>WebGPU HDR Pattern & Image Test</title>
+</head>
+
+<body onload="init()">
   <style>
     body {
       margin: 0;
@@ -20,19 +23,33 @@
       border: 1px solid #444;
     }
 
+    img {
+      display: block;
+      margin: 20px auto;
+      border: 1px solid #444;
+    }
+
     .controls {
-      text-align: center;
-      margin: 20px;
+      position: absolute;
+      left: 20px;
+      top: 150px;
+      text-align: left;
+      margin: 0;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
     }
 
     button {
-      margin: 5px;
+      margin: 0;
       padding: 10px 20px;
       background: #444;
       color: white;
       border: none;
       border-radius: 4px;
       cursor: pointer;
+      display: block;
     }
 
     button:hover {
@@ -52,514 +69,525 @@
       border-radius: 4px;
     }
   </style>
-</head>
+<h1>WebGPU HDR Pattern & Image Test</h1>
+<div id="status">Initializing WebGPU...</div>
 
-<body>
-  <h1>WebGPU HDR Pattern & Image Test</h1>
-  <div id="status">Initializing WebGPU...</div>
+<img id="hdr-image" style="width: 640px; " src="/test.avif" id="img"></img>
+<canvas id="2d-canvas" width="640" height="360" style="dynamic-range-limit: high"></canvas>
+<canvas id="webgpu-canvas" width="640" height="360" style="dynamic-range-limit: high"></canvas>
 
-  <canvas id="2d-canvas" width="640" height="360"></canvas>
-  <canvas id="webgpu-canvas" width="640" height="360"></canvas>
+<div class="controls">
+  <button id="toggle-img-btn">Toggle Image</button>
+  <button id="draw-pattern-btn">Draw HDR Test Pattern</button>
+  <button id="load-btn">Load test.avif</button>
+  <button id="reload-btn">Load Image</button>
+  <input type="file" id="file-input" accept="image/*" style="margin: 10px;">
+</div>
 
-  <div class="controls">
-    <button id="draw-pattern-btn">Draw HDR Test Pattern</button>
-    <button id="load-btn">Load test.avif</button>
-    <button id="reload-btn" disabled>Reload Image</button>
-    <input type="file" id="file-input" accept="image/*" style="margin: 10px;">
-  </div>
+<script>
+  // WebGPU state - referenced from renderer-webgpu.ts
+let device;
+let context;
+let pipeline;
+let sampler;
+let currentTexture = null;
 
-  <script>
-    // WebGPU state - referenced from renderer-webgpu.ts
-    let device;
-    let context;
-    let format = "rgba16float"; // HDR format
-    let pipeline;
-    let sampler;
-    let currentTexture = null;
+// Global 2D canvas context variables
+const canvas2D = document.getElementById("2d-canvas");
+canvas2D.configureHighDynamicRange({ mode: "extended" });
+const ctx2D = canvas2D.getContext("2d", {
+  colorSpace: "srgb-linear",
+  colorType: "float16",
+  willReadFrequently: true,
+});
 
-    // Get canvas and status elements
-    const canvas = document.getElementById('webgpu-canvas');
-    const status = document.getElementById('status');
-    const drawPatternBtn = document.getElementById('draw-pattern-btn');
-    const loadBtn = document.getElementById('load-btn');
-    const reloadBtn = document.getElementById('reload-btn');
-    const fileInput = document.getElementById('file-input');
+// Get canvas and status elements
+const canvas = document.getElementById("webgpu-canvas");
+const status = document.getElementById("status");
+const toggleImgBtn = document.getElementById("toggle-img-btn");
+const drawPatternBtn = document.getElementById("draw-pattern-btn");
+const loadBtn = document.getElementById("load-btn");
+const reloadBtn = document.getElementById("reload-btn");
+const fileInput = document.getElementById("file-input");
+const hdrImage = document.getElementById("hdr-image");
 
-    function updateStatus(message) {
-      status.textContent = message;
-      console.log(message);
+function updateStatus(message) {
+  status.textContent = message;
+  console.log(message);
+}
+
+// Image visibility functions
+function saveImageVisibility(isVisible) {
+  localStorage.setItem('hdr-image-visible', isVisible.toString());
+}
+
+function loadImageVisibility() {
+  const saved = localStorage.getItem('hdr-image-visible');
+  return saved !== null ? saved === 'true' : true; // default to visible
+}
+
+function toggleImageVisibility() {
+  const currentlyVisible = hdrImage.style.display !== 'none';
+  const newVisibility = !currentlyVisible;
+  
+  hdrImage.style.display = newVisibility ? 'block' : 'none';
+  toggleImgBtn.textContent = newVisibility ? 'Hide Image' : 'Show Image';
+  saveImageVisibility(newVisibility);
+  
+  updateStatus(`Image ${newVisibility ? 'shown' : 'hidden'}`);
+}
+
+function restoreImageVisibility() {
+  const isVisible = loadImageVisibility();
+  hdrImage.style.display = isVisible ? 'block' : 'none';
+  toggleImgBtn.textContent = isVisible ? 'Hide Image' : 'Show Image';
+}
+
+// Initialize WebGPU with HDR support - based on renderer-webgpu.ts
+async function initWebGPU() {
+  try {
+    if (!navigator.gpu) {
+      throw new Error("WebGPU not supported");
     }
 
-    // Initialize WebGPU with HDR support - based on renderer-webgpu.ts
-    async function initWebGPU() {
-      try {
-        if (!navigator.gpu) {
-          throw new Error('WebGPU not supported');
-        }
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) {
+      throw new Error("No WebGPU adapter found");
+    }
 
-        const adapter = await navigator.gpu.requestAdapter();
-        if (!adapter) {
-          throw new Error('No WebGPU adapter found');
-        }
+    device = await adapter.requestDevice();
+    context = canvas.getContext("webgpu");
 
-        device = await adapter.requestDevice();
-        context = canvas.getContext("webgpu");
+    // Configure with HDR support - same as renderer-webgpu.ts
+    context.configure({
+      device,
+      format: "rgba16float",
+      colorSpace: "srgb-linear", // HDR color space
+      toneMapping: { mode: "extended" }, // HDR tone mapping
+    });
 
-        // Configure with HDR support - same as renderer-webgpu.ts
-        context.configure({
-          device,
-          format,
-          colorSpace: 'srgb-linear', // HDR color space
-          toneMapping: { mode: "extended" } // HDR tone mapping
-        });
+    // Create sampler
+    sampler = device.createSampler({
+      magFilter: "linear",
+      minFilter: "linear",
+      addressModeU: "clamp-to-edge",
+      addressModeV: "clamp-to-edge",
+    });
 
-        // Create sampler
-        sampler = device.createSampler({
-          magFilter: 'linear',
-          minFilter: 'linear',
-          addressModeU: 'clamp-to-edge',
-          addressModeV: 'clamp-to-edge'
-        });
+    // Create render pipeline
+    pipeline = await createRenderPipeline();
+    updateStatus("WebGPU initialized successfully with HDR support");
+    return true;
+  } catch (error) {
+    updateStatus(`WebGPU initialization failed: ${error.message}`);
+    return false;
+  }
+}
 
-        // Create render pipeline
-        pipeline = await createRenderPipeline();
+// Shader code for HDR image rendering - adapted from renderer-webgpu.ts
+function getShaderCode() {
+  return `
+    struct VertexOutput {
+        @builtin(position) position: vec4f,
+        @location(0) texCoord: vec2f
+    };
 
-        updateStatus('WebGPU initialized successfully with HDR support');
-        return true;
-      } catch (error) {
-        updateStatus(`WebGPU initialization failed: ${error.message}`);
-        return false;
+    @vertex
+    fn vertexMain(
+        @builtin(vertex_index) vertexIndex: u32
+    ) -> VertexOutput {
+        // Full-screen quad vertices
+        var pos: array<vec2f, 6> = array(
+            vec2f(-1.0, -1.0),  // Bottom-left
+            vec2f(1.0, -1.0),   // Bottom-right
+            vec2f(-1.0, 1.0),   // Top-left
+            vec2f(-1.0, 1.0),   // Top-left
+            vec2f(1.0, -1.0),   // Bottom-right
+            vec2f(1.0, 1.0)     // Top-right
+        );
+        
+        // UV coordinates for texture mapping
+        var uv: array<vec2f, 6> = array(
+            vec2f(0.0, 1.0),
+            vec2f(1.0, 1.0),
+            vec2f(0.0, 0.0),
+            vec2f(0.0, 0.0),
+            vec2f(1.0, 1.0),
+            vec2f(1.0, 0.0)
+        );
+        
+        var output: VertexOutput;
+        output.position = vec4f(pos[vertexIndex], 0.0, 1.0);
+        output.texCoord = uv[vertexIndex];
+        
+        return output;
+    }
+
+    @group(0) @binding(0) var textureSampler: sampler;
+    @group(0) @binding(1) var imageTexture: texture_external;
+
+    @fragment
+    fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
+        // Sample HDR image texture - same as renderer-webgpu.ts
+        return textureSampleBaseClampToEdge(
+            imageTexture, 
+            textureSampler, 
+            input.texCoord
+        );
+    }
+`;
+}
+
+// Create render pipeline - based on renderer-webgpu.ts
+async function createRenderPipeline() {
+  const bindGroupLayout = device.createBindGroupLayout({
+    entries: [
+      // Sampler binding
+      {
+        binding: 0,
+        visibility: GPUShaderStage.FRAGMENT,
+        sampler: {},
+      },
+      // External texture binding for VideoFrame - same as renderer-webgpu.ts
+      {
+        binding: 1,
+        visibility: GPUShaderStage.FRAGMENT,
+        externalTexture: {},
+      },
+    ],
+  });
+
+  const pipelineLayout = device.createPipelineLayout({
+    bindGroupLayouts: [bindGroupLayout],
+  });
+
+  const shaderModule = device.createShaderModule({
+    code: getShaderCode(),
+  });
+
+  return device.createRenderPipeline({
+    layout: pipelineLayout,
+    vertex: {
+      module: shaderModule,
+      entryPoint: "vertexMain",
+    },
+    fragment: {
+      module: shaderModule,
+      entryPoint: "fragmentMain",
+      targets: [{ format: "rgba16float" }],
+    },
+    primitive: {
+      topology: "triangle-list",
+    },
+  });
+}
+
+// Load image from file object (for file input)
+async function loadImageFromFile(file) {
+  try {
+    updateStatus(`Loading image from file: ${file.name}...`);
+
+    // Create object URL for the file
+    const url = URL.createObjectURL(file);
+
+    // Create image element
+    const img = new Image();
+
+    // Load image
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = reject;
+      img.src = url;
+    });
+
+    // Clean up object URL
+    URL.revokeObjectURL(url);
+
+    // Draw to 2D canvas instead of WebGPU processing
+    await drawImageTo2DCanvas(img);
+  } catch (error) {
+    updateStatus(`Failed to load image file: ${error.message}`);
+    console.error("Image file loading error:", error);
+  }
+}
+
+// Load AVIF image and draw to 2D canvas
+async function loadImage(url) {
+  try {
+    updateStatus(`Loading image from ${url}...`);
+
+    // Create image element
+    const img = new Image();
+
+    // For local files, don't set crossOrigin
+    if (!url.startsWith("http")) {
+      // Local file - don't set crossOrigin
+    } else {
+      img.crossOrigin = "anonymous";
+    }
+
+    // Load image
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = (e) => {
+        console.error("Image load error:", e);
+        reject(
+          new Error(
+            `Failed to load image from ${url}. Try using the file input or online image instead.`
+          )
+        );
+      };
+      img.src = url;
+    });
+
+    // Draw to 2D canvas instead of WebGPU processing
+    await drawImageTo2DCanvas(img);
+  } catch (error) {
+    updateStatus(`Failed to load image: ${error.message}`);
+    console.error("Image loading error:", error);
+  }
+}
+
+// Draw image to 2D canvas and render via WebGPU
+async function drawImageTo2DCanvas(img) {
+  try {
+    updateStatus(`Processing image: ${img.width}x${img.height}`);
+
+    // Keep canvas size fixed
+    const canvasWidth = canvas2D.width;
+    const canvasHeight = canvas2D.height;
+
+    // Clear and draw image scaled to fit canvas
+    ctx2D.clearRect(0, 0, canvasWidth, canvasHeight);
+    ctx2D.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+
+    updateStatus(
+      `Image drawn to 2D canvas: ${img.width}x${img.height} -> ${canvasWidth}x${canvasHeight}`
+    );
+
+    const imageData = ctx2D.getImageData(
+      0,
+      0,
+      canvas2D.width,
+      canvas2D.height,
+      {
+        colorSpace: "srgb-linear",
+        pixelFormat: "rgba-float16",
       }
-    }
+    );
 
-    // Shader code for HDR image rendering - adapted from renderer-webgpu.ts
-    function getShaderCode() {
-      return `
-                struct VertexOutput {
-                    @builtin(position) position: vec4f,
-                    @location(0) texCoord: vec2f
-                };
+    // Render current canvas content via WebGPU
+    await drawImageData(imageData, "HDR image rendered successfully");
+  } catch (error) {
+    updateStatus(`Failed to process image: ${error.message}`);
+    console.error("Image processing error:", error);
+  }
+}
 
-                @vertex
-                fn vertexMain(
-                    @builtin(vertex_index) vertexIndex: u32
-                ) -> VertexOutput {
-                    // Full-screen quad vertices
-                    var pos: array<vec2f, 6> = array(
-                        vec2f(-1.0, -1.0),  // Bottom-left
-                        vec2f(1.0, -1.0),   // Bottom-right
-                        vec2f(-1.0, 1.0),   // Top-left
-                        vec2f(-1.0, 1.0),   // Top-left
-                        vec2f(1.0, -1.0),   // Bottom-right
-                        vec2f(1.0, 1.0)     // Top-right
-                    );
-                    
-                    // UV coordinates for texture mapping
-                    var uv: array<vec2f, 6> = array(
-                        vec2f(0.0, 1.0),
-                        vec2f(1.0, 1.0),
-                        vec2f(0.0, 0.0),
-                        vec2f(0.0, 0.0),
-                        vec2f(1.0, 1.0),
-                        vec2f(1.0, 0.0)
-                    );
-                    
-                    var output: VertexOutput;
-                    output.position = vec4f(pos[vertexIndex], 0.0, 1.0);
-                    output.texCoord = uv[vertexIndex];
-                    
-                    return output;
-                }
+// Create HDR test pattern with canvas (original flow)
+function createHDRTestPattern() {
+  updateStatus("Creating HDR test pattern...");
 
-                @group(0) @binding(0) var textureSampler: sampler;
-                @group(0) @binding(1) var imageTexture: texture_external;
+  try {
+    // Use HDR context with extended sRGB linear color space (now global)
+    const width = canvas2D.width;
+    const height = canvas2D.height;
+    const halfWidth = width / 2;
+    const halfHeight = height / 2;
 
-                @fragment
-                fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
-                    // Sample HDR image texture - same as renderer-webgpu.ts
-                    return textureSampleBaseClampToEdge(
-                        imageTexture, 
-                        textureSampler, 
-                        input.texCoord
-                    );
-                }
-            `;
-    }
+    // Clear canvas
+    ctx2D.clearRect(0, 0, width, height);
 
-    // Create render pipeline - based on renderer-webgpu.ts
-    async function createRenderPipeline() {
-      const bindGroupLayout = device.createBindGroupLayout({
-        entries: [
-          // Sampler binding
-          {
-            binding: 0,
-            visibility: GPUShaderStage.FRAGMENT,
-            sampler: {}
-          },
-          // External texture binding for VideoFrame - same as renderer-webgpu.ts
-          {
-            binding: 1,
-            visibility: GPUShaderStage.FRAGMENT,
-            externalTexture: {}
-          }
-        ]
-      });
+    // Create HDR colors with higher intensity values for true HDR
+    const hdrIntensity = 0.5; // HDR multiplier
 
-      const pipelineLayout = device.createPipelineLayout({
-        bindGroupLayouts: [bindGroupLayout]
-      });
+    // Top-left: Blue (HDR)
+    ctx2D.fillStyle = `color(srgb-linear 0 0 ${hdrIntensity})`;
+    ctx2D.fillRect(0, 0, halfWidth, halfHeight);
 
-      const shaderModule = device.createShaderModule({
-        code: getShaderCode()
-      });
+    // Top-right: Yellow (HDR)
+    ctx2D.fillStyle = `color(srgb-linear ${hdrIntensity} ${hdrIntensity} 0)`;
+    ctx2D.fillRect(halfWidth, 0, halfWidth, halfHeight);
 
-      return device.createRenderPipeline({
-        layout: pipelineLayout,
-        vertex: {
-          module: shaderModule,
-          entryPoint: "vertexMain"
+    // Bottom-left: Green (HDR)
+    ctx2D.fillStyle = `color(srgb-linear 0 ${hdrIntensity} 0)`;
+    ctx2D.fillRect(0, halfHeight, halfWidth, halfHeight);
+
+    // Bottom-right: Red (HDR)
+    ctx2D.fillStyle = `color(srgb-linear ${hdrIntensity} 0 0)`;
+    ctx2D.fillRect(halfWidth, halfHeight, halfWidth, halfHeight);
+
+    // Center white rectangle (Super bright HDR white)
+    const centerW = width * 0.05;
+    const centerH = height * 0.05;
+    const centerX = (width - centerW) / 2;
+    const centerY = (height - centerH) / 2;
+
+    const whiteBrightness = 100.0; // Very bright HDR white
+    ctx2D.fillStyle = `color(srgb-linear ${whiteBrightness} ${whiteBrightness} ${whiteBrightness})`;
+    ctx2D.fillRect(centerX, centerY, centerW, centerH);
+
+    const data = ctx2D.getImageData(0, 0, canvas2D.width, canvas2D.height, {
+      colorSpace: "srgb-linear",
+      pixelFormat: "rgba-float16",
+    });
+
+    return data;
+  } catch (error) {
+    // Fallback: create pattern using regular canvas if HDR context fails
+    console.warn("HDR context failed, using fallback:", error);
+    return null;
+  }
+}
+
+// Common function to render ImageData via WebGPU
+async function drawImageData(
+  imageData,
+  statusMessage = "Image rendered successfully"
+) {
+  try {
+    // Create VideoFrame from ImageData
+    console.log("Creating VideoFrame from ImageData...");
+    const videoFrame = new VideoFrame(imageData.data, {
+      format: "RGBAF16",
+      timestamp: 0,
+      duration: 16666,
+      codedWidth: imageData.width,
+      codedHeight: imageData.height,
+      // HDR colorspace: BT.709, LINEAR transfer, RGB matrix, FULL range
+      colorSpace: {
+        primaries: "bt709",
+        transfer: "linear",
+        matrix: "rgb",
+        fullRange: true,
+      },
+      transfer: [imageData.data.buffer],
+    });
+
+    // Import external texture with HDR settings
+    currentTexture = device.importExternalTexture({
+      source: videoFrame,
+      colorSpace: "srgb-linear", // HDR color space
+    });
+
+    // Enable reload button
+    reloadBtn.disabled = false;
+
+    // Render
+    console.log("Starting render...");
+    render();
+    updateStatus(`${statusMessage} via WebGPU VideoFrame`);
+
+    // Clean up VideoFrame after render
+    videoFrame.close();
+  } catch (error) {
+    updateStatus(`Failed to render ImageData: ${error.message}`);
+    console.error("ImageData rendering error:", error);
+  }
+}
+
+// Draw HDR test pattern and render with WebGPU
+async function drawHDRTestPattern() {
+  try {
+    updateStatus("Drawing HDR test pattern...");
+
+    // Create HDR test pattern (draws to canvas)
+    const imageData = createHDRTestPattern();
+
+    // Render current canvas content via WebGPU
+    await drawImageData(imageData, "HDR test pattern rendered successfully");
+  } catch (error) {
+    updateStatus(`Failed to create HDR test pattern: ${error.message}`);
+    console.error("HDR pattern creation error:", error);
+  }
+}
+
+// Render function - simplified from renderer-webgpu.ts
+function render() {
+  if (!device || !context || !pipeline || !sampler || !currentTexture) {
+    console.error("Missing required components for rendering");
+    return;
+  }
+
+  try {
+    const commandEncoder = device.createCommandEncoder();
+    const textureView = context.getCurrentTexture().createView();
+    const renderPass = commandEncoder.beginRenderPass({
+      colorAttachments: [
+        {
+          view: textureView,
+          loadOp: "load",
+          storeOp: "store",
         },
-        fragment: {
-          module: shaderModule,
-          entryPoint: "fragmentMain",
-          targets: [{ format }]
+      ],
+    });
+
+    renderPass.setPipeline(pipeline);
+
+    const bindGroup = device.createBindGroup({
+      layout: pipeline.getBindGroupLayout(0),
+      entries: [
+        {
+          binding: 0,
+          resource: sampler,
         },
-        primitive: {
-          topology: "triangle-list"
-        }
-      });
-    }
-
-    // Load image from file object (for file input)
-    async function loadImageFromFile(file) {
-      try {
-        updateStatus(`Loading image from file: ${file.name}...`);
-
-        // Create object URL for the file
-        const url = URL.createObjectURL(file);
-
-        // Create image element
-        const img = new Image();
-
-        // Load image
-        await new Promise((resolve, reject) => {
-          img.onload = resolve;
-          img.onerror = reject;
-          img.src = url;
-        });
-
-        // Clean up object URL
-        URL.revokeObjectURL(url);
-
-        // Draw to 2D canvas instead of WebGPU processing
-        await drawImageTo2DCanvas(img);
-
-      } catch (error) {
-        updateStatus(`Failed to load image file: ${error.message}`);
-        console.error("Image file loading error:", error);
-      }
-    }
-
-    // Load AVIF image and draw to 2D canvas
-    async function loadImage(url) {
-      try {
-        updateStatus(`Loading image from ${url}...`);
-
-        // Create image element
-        const img = new Image();
-
-        // For local files, don't set crossOrigin
-        if (!url.startsWith('http')) {
-          // Local file - don't set crossOrigin
-        } else {
-          img.crossOrigin = 'anonymous';
-        }
-
-        // Load image
-        await new Promise((resolve, reject) => {
-          img.onload = resolve;
-          img.onerror = (e) => {
-            console.error("Image load error:", e);
-            reject(new Error(`Failed to load image from ${url}. Try using the file input or online image instead.`));
-          };
-          img.src = url;
-        });
-
-        // Draw to 2D canvas instead of WebGPU processing
-        await drawImageTo2DCanvas(img);
-
-      } catch (error) {
-        updateStatus(`Failed to load image: ${error.message}`);
-        console.error("Image loading error:", error);
-      }
-    }
-
-    // Draw image to 2D canvas and render via WebGPU
-    async function drawImageTo2DCanvas(img) {
-      try {
-        updateStatus(`Processing image: ${img.width}x${img.height}`);
-
-        const patternCanvas = document.getElementById('2d-canvas');
-        patternCanvas.configureHighDynamicRange({ mode: "extended" });
-        const ctx = patternCanvas.getContext('2d', {
-          colorSpace: 'srgb-linear',
-          colorType: 'float16'
-        });
-
-        // Keep canvas size fixed
-        const canvasWidth = patternCanvas.width;
-        const canvasHeight = patternCanvas.height;
-
-        // Clear and draw image scaled to fit canvas
-        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-        ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
-
-        updateStatus(`Image drawn to 2D canvas: ${img.width}x${img.height} -> ${canvasWidth}x${canvasHeight}`);
-
-        const imageData = ctx.getImageData(0, 0, patternCanvas.width, patternCanvas.height, {
-          colorSpace: 'srgb-linear',
-          pixelFormat: 'rgba-float16'
-        });
-
-        // Render current canvas content via WebGPU
-        await drawImageData(imageData, 'HDR image rendered successfully');
-      } catch (error) {
-        updateStatus(`Failed to process image: ${error.message}`);
-        console.error("Image processing error:", error);
-      }
-    }
-
-    // Create HDR test pattern with canvas (original flow)
-    function createHDRTestPattern() {
-      updateStatus('Creating HDR test pattern...');
-
-      try {
-        // Use HDR context with extended sRGB linear color space
-        const patternCanvas = document.getElementById('2d-canvas');
-        patternCanvas.configureHighDynamicRange({ mode: "extended" });
-        const ctx = patternCanvas.getContext('2d', {
-          colorSpace: 'srgb-linear',
-          colorType: 'float16'
-        });
-
-        const width = patternCanvas.width;
-        const height = patternCanvas.height;
-        const halfWidth = width / 2;
-        const halfHeight = height / 2;
-
-        // Clear canvas
-        ctx.clearRect(0, 0, width, height);
-
-        // Create HDR colors with higher intensity values for true HDR
-        const hdrIntensity = 2.0; // HDR multiplier
-
-        // Top-left: Blue (HDR)
-        ctx.fillStyle = `color(srgb-linear 0 0 ${hdrIntensity})`;
-        ctx.fillRect(0, 0, halfWidth, halfHeight);
-
-        // Top-right: Yellow (HDR) 
-        ctx.fillStyle = `color(srgb-linear ${hdrIntensity} ${hdrIntensity} 0)`;
-        ctx.fillRect(halfWidth, 0, halfWidth, halfHeight);
-
-        // Bottom-left: Green (HDR)
-        ctx.fillStyle = `color(srgb-linear 0 ${hdrIntensity} 0)`;
-        ctx.fillRect(0, halfHeight, halfWidth, halfHeight);
-
-        // Bottom-right: Red (HDR)
-        ctx.fillStyle = `color(srgb-linear ${hdrIntensity} 0 0)`;
-        ctx.fillRect(halfWidth, halfHeight, halfWidth, halfHeight);
-
-        // Center white rectangle (Super bright HDR white)
-        const centerW = width * 0.05;
-        const centerH = height * 0.05;
-        const centerX = (width - centerW) / 2;
-        const centerY = (height - centerH) / 2;
-
-        const whiteBrightness = 10.0; // Very bright HDR white
-        ctx.fillStyle = `color(srgb-linear ${whiteBrightness} ${whiteBrightness} ${whiteBrightness})`;
-        ctx.fillRect(centerX, centerY, centerW, centerH);
-
-        return ctx.getImageData(0, 0, patternCanvas.width, patternCanvas.height, {
-          colorSpace: 'srgb-linear',
-          pixelFormat: 'rgba-float16'
-        });
-      } catch (error) {
-        // Fallback: create pattern using regular canvas if HDR context fails
-        console.warn('HDR context failed, using fallback:', error);
-        return null;
-      }
-    }
-
-    // Common function to render ImageData via WebGPU
-    async function drawImageData(imageData, statusMessage = 'Image rendered successfully') {
-      try {
-        return;
-
-        // Create VideoFrame from ImageData
-        console.log('Creating VideoFrame from ImageData...');
-        const videoFrame = new VideoFrame(imageData.data, {
-          format: 'RGBAF16',
-          timestamp: 0,
-          codedWidth: imageData.width,
-          codedHeight: imageData.height,
-          // HDR colorspace: BT.709, LINEAR transfer, RGB matrix, FULL range
-          colorSpace: {
-            primaries: 'bt709',
-            transfer: 'linear',
-            matrix: 'rgb',
-            fullRange: true,
-          }
-        });
-
-        console.log('VideoFrame created:', videoFrame);
-
-        // Import external texture with HDR settings
-        console.log('Importing external texture...');
-        currentTexture = device.importExternalTexture({
-          source: videoFrame,
-          colorSpace: 'srgb-linear' // HDR color space
-        });
-
-        console.log('External texture imported:', currentTexture);
-
-        // Enable reload button
-        reloadBtn.disabled = false;
-
-        // Render 
-        console.log('Starting render...');
-        render();
-        updateStatus(`${statusMessage} via WebGPU VideoFrame`);
-
-        // Clean up VideoFrame after render
-        setTimeout(() => {
-          console.log('Closing VideoFrame...');
-          videoFrame.close();
-        }, 100);
-
-      } catch (error) {
-        updateStatus(`Failed to render ImageData: ${error.message}`);
-        console.error("ImageData rendering error:", error);
-      }
-    }
-
-    // Draw HDR test pattern and render with WebGPU
-    async function drawHDRTestPattern() {
-      try {
-        updateStatus('Drawing HDR test pattern...');
-
-        // Create HDR test pattern (draws to canvas)
-        const imageData = createHDRTestPattern();
-
-        // Render current canvas content via WebGPU
-        await drawImageData(imageData, 'HDR test pattern rendered successfully');
-
-      } catch (error) {
-        updateStatus(`Failed to create HDR test pattern: ${error.message}`);
-        console.error("HDR pattern creation error:", error);
-      }
-    }
-
-    // Render function - simplified from renderer-webgpu.ts
-    function render() {
-      console.log('Render called, checking components:');
-      console.log('  device:', !!device);
-      console.log('  context:', !!context);
-      console.log('  pipeline:', !!pipeline);
-      console.log('  sampler:', !!sampler);
-      console.log('  currentTexture:', !!currentTexture);
-
-      if (!device || !context || !pipeline || !sampler || !currentTexture) {
-        console.error('Missing required components for rendering');
-        return;
-      }
-
-      try {
-        console.log('Creating command encoder...');
-        const commandEncoder = device.createCommandEncoder();
-
-        console.log('Getting current texture view...');
-        const textureView = context.getCurrentTexture().createView();
-
-        console.log('Beginning render pass...');
-        const renderPass = commandEncoder.beginRenderPass({
-          colorAttachments: [
-            {
-              view: textureView,
-              loadOp: "clear",
-              clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1.0 },
-              storeOp: "store",
-            },
-          ],
-        });
-
-        console.log('Setting pipeline...');
-        renderPass.setPipeline(pipeline);
-
-        // Create bind group with current external texture - same as renderer-webgpu.ts
-        console.log('Creating bind group...');
-        const bindGroup = device.createBindGroup({
-          layout: pipeline.getBindGroupLayout(0),
-          entries: [
-            {
-              binding: 0,
-              resource: sampler
-            },
-            {
-              binding: 1,
-              resource: currentTexture
-            }
-          ]
-        });
-
-        console.log('Setting bind group and drawing...');
-        renderPass.setBindGroup(0, bindGroup);
-        renderPass.draw(6, 1, 0, 0);
-        renderPass.end();
-
-        console.log('Submitting command buffer...');
-        device.queue.submit([commandEncoder.finish()]);
-
-        console.log('Render completed successfully');
-      } catch (error) {
-        console.error("Render error:", error);
-        updateStatus(`Render error: ${error.message}`);
-      }
-    }
-
-    // Button event handlers
-    drawPatternBtn.addEventListener('click', () => {
-      drawHDRTestPattern();
+        {
+          binding: 1,
+          resource: currentTexture,
+        },
+      ],
     });
 
-    loadBtn.addEventListener('click', () => {
-      loadImage('test.avif');
-    });
+    renderPass.setBindGroup(0, bindGroup);
+    renderPass.draw(6, 1, 0, 0);
+    renderPass.end();
 
-    reloadBtn.addEventListener('click', () => {
-      // External textures don't need explicit destruction
-      currentTexture = null;
-      drawHDRTestPattern(); // Redraw the pattern instead of loading test.avif
-    });
+    device.queue.submit([commandEncoder.finish()]);
 
-    // File input handler
-    fileInput.addEventListener('change', (event) => {
-      const file = event.target.files[0];
-      if (file) {
-        loadImageFromFile(file);
-      }
-    });
+    console.log("Render completed successfully");
+  } catch (error) {
+    console.error("Render error:", error);
+    updateStatus(`Render error: ${error.message}`);
+  }
+}
 
-    // Initialize everything
-    async function init() {
-      const success = await initWebGPU();
-      if (success) {
-        updateStatus('WebGPU ready - Draw HDR test pattern or load images');
-      }
-    }
+// Button event handlers
+toggleImgBtn.addEventListener("click", () => {
+  toggleImageVisibility();
+});
 
-    // Start initialization
-    init();
-  </script>
+drawPatternBtn.addEventListener("click", () => {
+  drawHDRTestPattern();
+});
+
+loadBtn.addEventListener("click", () => {
+  loadImage("/test.avif");
+});
+
+reloadBtn.addEventListener("click", () => {
+  drawImageTo2DCanvas(hdrImage);
+});
+
+// File input handler
+fileInput.addEventListener("change", (event) => {
+  const file = event.target.files[0];
+  if (file) {
+    loadImageFromFile(file);
+  }
+});
+
+// Initialize everything
+async function init() {
+  console.log('initialize')
+  restoreImageVisibility();
+  const success = await initWebGPU();
+  if (success) {
+    updateStatus("WebGPU ready - Draw HDR test pattern or load images");
+  }
+} 
+
+</script>
+
 </body>
 
 </html>
