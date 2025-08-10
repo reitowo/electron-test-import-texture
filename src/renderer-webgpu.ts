@@ -323,7 +323,7 @@ initWebGpu().then(() => {
 
     const renderLoop = () => {
         renderGrid();
-        requestAnimationFrame(renderLoop);
+        setTimeout(renderLoop, 15);
     };
 
     // Start the render loop
