@@ -7,7 +7,7 @@ import os
 import sys
 from typing import Optional
 
-ELECTRON_PATH = r"D:/Electron/src/out/Debug/electron.exe"
+ELECTRON_PATH = r"D:/Electron/src/out/Release/electron.exe"
 COMMAND = [
     ELECTRON_PATH,
     "--no-sandbox",
@@ -17,9 +17,9 @@ COMMAND = [
 
 LOG_FILTER_SUBSTR = "importSharedTexture"  # only consider lines with this
 THRESHOLD = 300
-CHECK_SECONDS = 8.0
+CHECK_SECONDS = 15.0
 SLEEP_BETWEEN_RUNS = 0.5  # small pause between cycles
-
+4 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn555555555555555555g555555555555555g5g5g5g5g5ggrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr
 def _reader(stream, q: queue.Queue) -> None:
     try:
         for line in iter(stream.readline, ""):

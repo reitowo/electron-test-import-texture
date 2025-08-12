@@ -349,3 +349,4 @@ initWebGpu().then(() => {
     // Only store what we need for rendering
     storedTextures.push({ id, idx, imported, frame, texture });
 });
+
