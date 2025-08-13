@@ -16,9 +16,6 @@ const CANVAS_HEIGHT = 1080;
 const CELL_WIDTH = CANVAS_WIDTH / GRID_SIZE;
 const CELL_HEIGHT = CANVAS_HEIGHT / GRID_SIZE;
 
-// Store textures in renderer
-const storedTextures: { id: string, idx: number, imported: any, frame: VideoFrame, texture: GPUExternalTexture }[] = [];
-
 // Create reusable resources to avoid recreating them every frame
 const transformBuffers: GPUBuffer[] = [];
 let pipeline: GPURenderPipeline | null = null;
@@ -215,6 +212,8 @@ const createRenderPipeline = async (): Promise<GPURenderPipeline> => {
         }
     });
 };
+// Store textures in renderer
+const storedTextures: { id: string, idx: number, frame: VideoFrame, texture: GPUExternalTexture }[] = [];
 
 // Render the grid with current textures
 const renderGrid = async () => {
@@ -229,21 +228,18 @@ const renderGrid = async () => {
 
     try {
         // Use a map for faster lookups
-        const textureMap = new Map<number, { texture: GPUExternalTexture, id: string, imported: any, frame: VideoFrame }>();
+        const textureMap = new Map<number, { texture: GPUExternalTexture, id: string, frame: VideoFrame }>();
         const releases = []
 
         // Process textures
         const keep = []
-        for (const { id, idx, imported, frame, texture } of storedTextures) {
+        for (const { id, idx, frame, texture } of storedTextures) {
             if (textureMap.has(idx)) {
-                keep.push({ id, idx, imported, frame, texture })
+                keep.push({ id, idx, frame, texture })
             } else {
-                textureMap.set(idx, { texture, id, imported, frame });
+                textureMap.set(idx, { texture, id, frame });
                 releases.push(async () => {
                     frame.close();
-                    imported.release(() => {
-                        (window as any).textures.notifyTextureReleased(id);
-                    });
                 });
             }
         }
@@ -310,7 +306,7 @@ const renderGrid = async () => {
 
         // Release frames efficiently after rendering is complete
         for (const release of releases) {
-            release();
+            await release();
         }
     } catch (error) {
         console.error("Error in renderGrid:", error);
@@ -323,7 +319,7 @@ initWebGpu().then(() => {
 
     const renderLoop = () => {
         renderGrid();
-        setTimeout(renderLoop, 15);
+        requestAnimationFrame(renderLoop);
     };
 
     // Start the render loop
@@ -333,20 +329,19 @@ initWebGpu().then(() => {
 });
 
 // Handle shared texture events
-(window as any).textures.onSharedTexture(async (id: string, idx: number, imported: any) => {
-    if (!device) {
-        (window as any).textures.notifyTextureReleased(id);
-        return;
+(window as any).textures.onSharedTexture(async (id: string, idx: number, imported: Electron.SharedTextureImported) => {
+    if (device) {
+        const frame = imported.getVideoFrame() as VideoFrame;
+        const texture = device.importExternalTexture({
+            source: frame,
+            //@ts-ignore
+            colorSpace: 'srgb-linear',
+        }) as GPUExternalTexture;
+
+        // Only store what we need for rendering
+        storedTextures.push({ id, idx, frame, texture });
     }
-
-    const frame = imported.getVideoFrame() as VideoFrame;
-    const texture = device.importExternalTexture({
-        source: frame,
-        //@ts-ignore
-        colorSpace: 'srgb-linear',
-    }) as GPUExternalTexture;
-
-    // Only store what we need for rendering
-    storedTextures.push({ id, idx, imported, frame, texture });
+    
+    imported.release();
 });
 
