@@ -88,13 +88,13 @@ const createWindow = (): void => {
             }
         });
 
-        // osr.loadURL(
-        //     "https://app.singular.live/output/6W76ei5ZNekKkYhe8nw5o8/Output?aspect=16:9"
-        // );
-
         osr.loadURL(
-            "file:///D:/ElectronTest/video.html"
+            "https://app.singular.live/output/6W76ei5ZNekKkYhe8nw5o8/Output?aspect=16:9"
         );
+
+        // osr.loadURL(
+        //     "file:///D:/ElectronTest/video.html"
+        // );
 
         // osr.loadURL(
         //     "https://gregbenzphotography.com/hdr-gain-map-gallery/"

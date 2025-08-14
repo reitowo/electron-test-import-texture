@@ -330,8 +330,11 @@ initWebGpu().then(() => {
 
 // Handle shared texture events
 (window as any).textures.onSharedTexture(async (id: string, idx: number, imported: Electron.SharedTextureImported) => {
+
+    const frame = imported.getVideoFrame() as VideoFrame;
+    imported.release();
+
     if (device) {
-        const frame = imported.getVideoFrame() as VideoFrame;
         const texture = device.importExternalTexture({
             source: frame,
             //@ts-ignore
@@ -340,8 +343,8 @@ initWebGpu().then(() => {
 
         // Only store what we need for rendering
         storedTextures.push({ id, idx, frame, texture });
+    } else {
+        frame.close()
     }
-    
-    imported.release();
 });
 
