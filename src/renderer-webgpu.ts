@@ -10,7 +10,7 @@ export function logWithTime(message: string, ...optionalParams: any[]) {
 }
 
 // Define grid size and canvas dimensions
-const GRID_SIZE = 1; // 4x4 grid
+const GRID_SIZE = 4; // 4x4 grid
 const CANVAS_WIDTH = 1920;
 const CANVAS_HEIGHT = 1080;
 const CELL_WIDTH = CANVAS_WIDTH / GRID_SIZE;
@@ -330,7 +330,6 @@ initWebGpu().then(() => {
 
 // Handle shared texture events
 (window as any).textures.onSharedTexture(async (id: string, idx: number, imported: Electron.SharedTextureImported) => {
-
     const frame = imported.getVideoFrame() as VideoFrame;
     imported.release();
 

@@ -6,12 +6,21 @@ export function logWithTime(message: string, ...optionalParams: any[]) {
     // console.log(`[${timestamp}] ${message}`, ...optionalParams);
 }
 
+// Define grid size and canvas dimensions to match WebGPU version
+const GRID_SIZE = 4; // 4x4 grid
+const CANVAS_WIDTH = 1920;
+const CANVAS_HEIGHT = 1080;
+const CELL_WIDTH = CANVAS_WIDTH / GRID_SIZE;
+const CELL_HEIGHT = CANVAS_HEIGHT / GRID_SIZE;
+
 // Create canvas and get WebGL context
 const canvas = document.createElement("canvas");
-canvas.width = 1280;
-canvas.height = 720;
-canvas.style.width = "1280px";
-canvas.style.height = "720px";
+canvas.width = CANVAS_WIDTH;
+canvas.height = CANVAS_HEIGHT;
+canvas.style.width = `${CANVAS_WIDTH}px`;
+canvas.style.height = `${CANVAS_HEIGHT}px`;
+canvas.style.display = "block";
+canvas.style.margin = "auto";
 document.body.appendChild(canvas);
 
 const gl = canvas.getContext("webgl");
@@ -19,15 +28,22 @@ if (!gl) {
     throw new Error("WebGL not supported");
 }
 
-// Vertex Shader
+// Vertex Shader for grid rendering
 const vsSource = `
   attribute vec4 aVertexPosition;
   attribute vec2 aTextureCoord;
+  
+  uniform vec4 uTransform; // offsetX, offsetY, scaleX, scaleY
 
   varying highp vec2 vTextureCoord;
 
   void main(void) {
-    gl_Position = aVertexPosition;
+    // Apply grid cell transform
+    vec2 transformedPos = vec2(
+      aVertexPosition.x * uTransform.z + uTransform.x,
+      aVertexPosition.y * uTransform.w + uTransform.y
+    );
+    gl_Position = vec4(transformedPos.x, transformedPos.y, 0.0, 1.0);
     vTextureCoord = aTextureCoord;
   }
 `;
@@ -81,6 +97,7 @@ const programInfo = {
     },
     uniformLocations: {
         uSampler: gl.getUniformLocation(shaderProgram, 'uSampler'),
+        uTransform: gl.getUniformLocation(shaderProgram, 'uTransform'),
     },
 };
 
@@ -107,115 +124,217 @@ const textureCoordinates = [
 ];
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(textureCoordinates), gl.STATIC_DRAW);
 
-// --- Texture ---
-const texture = gl.createTexture();
-gl.bindTexture(gl.TEXTURE_2D, texture);
-// Use placeholder pixel until first frame arrives
-const level = 0;
-const internalFormat = gl.RGBA;
-const width = 1;
-const height = 1;
-const border = 0;
-const srcFormat = gl.RGBA;
-const srcType = gl.UNSIGNED_BYTE;
-const pixel = new Uint8Array([0, 0, 255, 255]); // opaque blue
-gl.texImage2D(gl.TEXTURE_2D, level, internalFormat,
-    width, height, border, srcFormat, srcType,
-    pixel);
+// --- Grid Transform Data ---
+// Pre-compute transform data for all grid cells
+const gridTransforms: Float32Array[] = [];
+for (let i = 0; i < GRID_SIZE * GRID_SIZE; i++) {
+    const gridX = i % GRID_SIZE;
+    const gridY = Math.floor(i / GRID_SIZE);
+    const cellWidth = 2.0 / GRID_SIZE;
+    const cellHeight = 2.0 / GRID_SIZE;
+    const padding = 0.05;
+    const effectiveWidth = cellWidth * (1.0 - padding);
+    const effectiveHeight = cellHeight * (1.0 - padding);
 
-// Set texture parameters for video frames
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    const transformData = new Float32Array([
+        -1.0 + gridX * cellWidth + cellWidth / 2.0,  // offsetX
+        1.0 - (gridY + 1) * cellHeight + cellHeight / 2.0,  // offsetY
+        effectiveWidth / 2.0,  // scaleX
+        effectiveHeight / 2.0  // scaleY
+    ]);
+    
+    gridTransforms[i] = transformData;
+}
+
+// --- Textures ---
+// Store textures for grid rendering
+const storedTextures: { id: string, idx: number, frame: VideoFrame, texture: WebGLTexture }[] = [];
+
+// Create a placeholder texture
+const createPlaceholderTexture = (): WebGLTexture => {
+    const texture = gl.createTexture();
+    if (!texture) throw new Error("Failed to create texture");
+    
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    
+    const level = 0;
+    const internalFormat = gl.RGBA;
+    const width = 1;
+    const height = 1;
+    const border = 0;
+    const srcFormat = gl.RGBA;
+    const srcType = gl.UNSIGNED_BYTE;
+    const pixel = new Uint8Array([0, 0, 255, 255]); // opaque blue
+    gl.texImage2D(gl.TEXTURE_2D, level, internalFormat,
+        width, height, border, srcFormat, srcType,
+        pixel);
+
+    // Set texture parameters for video frames
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    
+    return texture;
+};
 
 
-// --- Render Function ---
-(window as any).renderFrame = (frame: VideoFrame): void => {
+// --- Grid Render Function ---
+const renderGrid = (): void => {
+    if (!gl || storedTextures.length === 0) {
+        return; // Nothing to render
+    }
+
     try {
-        gl!.viewport(0, 0, gl!.canvas.width, gl!.canvas.height);
-        gl!.clearColor(0.0, 0.0, 0.0, 1.0); // Clear to black
-        gl!.clear(gl!.COLOR_BUFFER_BIT);
+        // Use a map for faster lookups
+        const textureMap = new Map<number, { texture: WebGLTexture, id: string, frame: VideoFrame }>();
+        const framesToClose: VideoFrame[] = [];
 
-        // Upload VideoFrame to texture
-        gl!.bindTexture(gl!.TEXTURE_2D, texture);
-        gl!.texImage2D(
-            gl!.TEXTURE_2D,    // target
-            0,                // level
-            gl!.RGBA,         // internalformat
-            gl!.RGBA,         // format
-            gl!.UNSIGNED_BYTE,// type
-            frame             // pixelsource
-        );
+        // Process textures - keep only the latest texture for each grid position
+        const keep: typeof storedTextures = [];
+        for (const { id, idx, frame, texture } of storedTextures) {
+            if (textureMap.has(idx)) {
+                // Close the old frame
+                const existing = textureMap.get(idx)!;
+                framesToClose.push(existing.frame);
+                // Delete the old texture
+                gl.deleteTexture(existing.texture);
+                keep.push({ id, idx, frame, texture });
+            } else {
+                textureMap.set(idx, { texture, id, frame });
+            }
+        }
+
+        // Clear and update stored textures
+        storedTextures.length = 0;
+        storedTextures.push(...keep);
+
+        if (textureMap.size === 0) {
+            return; // No valid textures to render
+        }
+
+        // Set up WebGL state
+        gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+        gl.clearColor(0.0, 0.0, 0.0, 1.0); // Clear to black
+        gl.clear(gl.COLOR_BUFFER_BIT);
 
         // Tell WebGL to use our program
-        gl!.useProgram(programInfo.program);
+        gl.useProgram(programInfo.program);
 
+        // Set up vertex attributes (once for all grid cells)
         // Set vertex positions attribute
         {
             const numComponents = 2;
-            const type = gl!.FLOAT;
+            const type = gl.FLOAT;
             const normalize = false;
             const stride = 0;
             const offset = 0;
-            gl!.bindBuffer(gl!.ARRAY_BUFFER, positionBuffer);
-            gl!.vertexAttribPointer(
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            gl.vertexAttribPointer(
                 programInfo.attribLocations.vertexPosition,
                 numComponents,
                 type,
                 normalize,
                 stride,
                 offset);
-            gl!.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
+            gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
         }
 
         // Set texture coordinates attribute
         {
             const numComponents = 2;
-            const type = gl!.FLOAT;
+            const type = gl.FLOAT;
             const normalize = false;
             const stride = 0;
             const offset = 0;
-            gl!.bindBuffer(gl!.ARRAY_BUFFER, textureCoordBuffer);
-            gl!.vertexAttribPointer(
+            gl.bindBuffer(gl.ARRAY_BUFFER, textureCoordBuffer);
+            gl.vertexAttribPointer(
                 programInfo.attribLocations.textureCoord,
                 numComponents,
                 type,
                 normalize,
                 stride,
                 offset);
-            gl!.enableVertexAttribArray(programInfo.attribLocations.textureCoord);
+            gl.enableVertexAttribArray(programInfo.attribLocations.textureCoord);
         }
 
-        // Specify the texture to map onto the faces.
-        gl!.activeTexture(gl!.TEXTURE0);
-        gl!.bindTexture(gl!.TEXTURE_2D, texture);
-        // Tell the shader we bound the texture to texture unit 0
-        gl!.uniform1i(programInfo.uniformLocations.uSampler, 0);
+        // Render each texture in its grid cell
+        for (let i = 0; i < GRID_SIZE * GRID_SIZE; i++) {
+            const textureData = textureMap.get(i);
+            if (textureData) {
+                const { texture } = textureData;
 
-        // Draw the quad
-        {
-            const offset = 0;
-            const vertexCount = 4;
-            gl!.drawArrays(gl!.TRIANGLE_STRIP, offset, vertexCount);
+                // Set grid cell transform
+                gl.uniform4fv(programInfo.uniformLocations.uTransform, gridTransforms[i]);
+
+                // Bind texture
+                gl.activeTexture(gl.TEXTURE0);
+                gl.bindTexture(gl.TEXTURE_2D, texture);
+                gl.uniform1i(programInfo.uniformLocations.uSampler, 0);
+
+                // Draw the quad for this grid cell
+                const offset = 0;
+                const vertexCount = 4;
+                gl.drawArrays(gl.TRIANGLE_STRIP, offset, vertexCount);
+            }
         }
-        console.log('WebGL Rendering complete');
+
+        // Close old frames
+        for (const frame of framesToClose) {
+            frame.close();
+        }
+
     } catch (error) {
-        console.error('WebGL Rendering error:', error);
+        console.error('WebGL Grid Rendering error:', error);
     }
 };
 
-// @ts-ignore
-(window as any).textures.onSharedTexture(async (id, imported) => {
+// Start render loop
+const renderLoop = () => {
+    renderGrid();
+    requestAnimationFrame(renderLoop);
+};
+
+// Start the render loop
+renderLoop();
+
+// Handle shared texture events - matches WebGPU version
+(window as any).textures.onSharedTexture(async (id: string, idx: number, imported: Electron.SharedTextureImported) => {
     try {
         const frame = imported.getVideoFrame() as VideoFrame;
-        logWithTime("renderer rendering frame", id)
+        imported.release();
 
-        await (window as any).renderFrame(frame);
-        logWithTime("renderer frame closing", id)
+        // Create WebGL texture from VideoFrame
+        const texture = gl.createTexture();
+        if (!texture) {
+            console.error("Failed to create WebGL texture");
+            frame.close();
+            return;
+        }
 
-        frame.close();
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        
+        // Upload VideoFrame to texture
+        gl.texImage2D(
+            gl.TEXTURE_2D,    // target
+            0,                // level
+            gl.RGBA,          // internalformat
+            gl.RGBA,          // format
+            gl.UNSIGNED_BYTE, // type
+            frame             // pixelsource
+        );
+
+        // Set texture parameters
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+        // Store texture for grid rendering
+        storedTextures.push({ id, idx, frame, texture });
+
+        logWithTime("WebGL texture created and stored", id, idx);
     } catch (error) {
-        console.error("Error getting VideoFrame:", error);
+        console.error("Error processing shared texture:", error);
     }
 });

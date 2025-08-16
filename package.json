@@ -18,7 +18,7 @@
     "typescript": "^5.3.3"
   },
   "scripts": {
-    "start": "npm run build && D:/Electron/src/out/Release/electron.exe --no-sandbox --browser-startup-dialog --enable-blink-features=CanvasHDR ./dist/main.js",
+    "start": "npm run build && D:/Electron/src/out/Release/electron.exe --enable-logging --no-sandbox --browser-startup-dialog --enable-blink-features=CanvasHDR ./dist/main.js",
     "build": "tsc",
     "watch": "tsc -w"
   }

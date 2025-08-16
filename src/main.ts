@@ -43,7 +43,7 @@ const createWindow = (): void => {
     });
 
     // Create offscreen windows for texture sources
-    for (let i = 0; i < 1; ++i) {
+    for (let i = 0; i < 16; ++i) {
         const osr = new BrowserWindow({
             show: false,
             webPreferences: {
@@ -54,7 +54,7 @@ const createWindow = (): void => {
             },
         });
 
-        osr.setSize(1920, 1080);
+        osr.setSize(1280, 720);
         osr.webContents.setFrameRate(240);
         osr.webContents.on("did-finish-load", () => {
             console.log(`osr pid: ${osr.webContents.getOSProcessId()}`);
@@ -81,7 +81,7 @@ const createWindow = (): void => {
             logWithTime("importSharedTexture took", importMs.toFixed(3), "ms", paintCount, releaseCount);
 
             try {
-                await sharedTexture.sendToRenderer(win.webContents, imported)
+                await sharedTexture.sendToRenderer(win.webContents, imported, i)
                 imported.release();
             } catch (e) {
                 console.log('timeout')
