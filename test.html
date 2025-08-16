@@ -427,12 +427,31 @@ function createHDRTestPattern() {
     ctx2D.fillStyle = `color(srgb-linear ${whiteBrightness} ${whiteBrightness} ${whiteBrightness})`;
     ctx2D.fillRect(centerX, centerY, centerW, centerH);
 
-    const data = ctx2D.getImageData(0, 0, canvas2D.width, canvas2D.height, {
-      colorSpace: "srgb-linear",
-      pixelFormat: "rgba-float16",
+    // Create VideoFrame from ImageData
+    console.log("Creating VideoFrame from ImageData...");
+    const videoFrame = new VideoFrame(canvas2D, {
+      timestamp: 0,
+      duration: 16666,
     });
 
-    return data;
+    console.log(videoFrame)
+    
+    // Import external texture with HDR settings
+    currentTexture = device.importExternalTexture({
+      source: videoFrame,
+      colorSpace: "srgb-linear", // HDR color space
+    });
+
+    // Enable reload button
+    reloadBtn.disabled = false;
+
+    // Render
+    console.log("Starting render...");
+    render();
+    updateStatus(`Rendered via WebGPU VideoFrame`);
+
+    // Clean up VideoFrame after render
+    videoFrame.close();
   } catch (error) {
     // Fallback: create pattern using regular canvas if HDR context fails
     console.warn("HDR context failed, using fallback:", error);
@@ -490,12 +509,7 @@ async function drawImageData(
 async function drawHDRTestPattern() {
   try {
     updateStatus("Drawing HDR test pattern...");
-
-    // Create HDR test pattern (draws to canvas)
-    const imageData = createHDRTestPattern();
-
-    // Render current canvas content via WebGPU
-    await drawImageData(imageData, "HDR test pattern rendered successfully");
+    createHDRTestPattern();
   } catch (error) {
     updateStatus(`Failed to create HDR test pattern: ${error.message}`);
     console.error("HDR pattern creation error:", error);
