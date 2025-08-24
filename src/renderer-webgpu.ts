@@ -20,6 +20,8 @@ const CELL_HEIGHT = CANVAS_HEIGHT / GRID_SIZE;
 const transformBuffers: GPUBuffer[] = [];
 let pipeline: GPURenderPipeline | null = null;
 let sampler: GPUSampler | null = null;
+let fullScreenPipeline: GPURenderPipeline | null = null;
+let fullScreenBindGroup: GPUBindGroup | null = null;
 
 // Create a single WebGPU canvas
 const canvas = document.createElement("canvas");
@@ -35,6 +37,40 @@ document.body.appendChild(canvas);
 let device: GPUDevice;
 let format: GPUTextureFormat;
 let context: GPUCanvasContext;
+let offscreenTexture: GPUTexture | null = null;
+let offscreenTextureView: GPUTextureView | null = null;
+
+// Full-screen quad shader (offscreenTexture -> canvas)
+const getFullScreenShaderCode = () => `
+    @group(0) @binding(0) var mySampler: sampler;
+    @group(0) @binding(1) var myTexture: texture_2d<f32>;
+
+    struct VertexOutput {
+        @builtin(position) pos: vec4f,
+        @location(0) uv: vec2f
+    };
+
+    @vertex
+    fn vmain(@builtin(vertex_index) idx: u32) -> VertexOutput {
+        var pos = array<vec2f, 6>(
+            vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
+            vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0)
+        );
+        var uv = array<vec2f, 6>(
+            vec2f(0.0, 1.0), vec2f(1.0, 1.0), vec2f(0.0, 0.0),
+            vec2f(0.0, 0.0), vec2f(1.0, 1.0), vec2f(1.0, 0.0)
+        );
+        var out: VertexOutput;
+        out.pos = vec4f(pos[idx], 0, 1);
+        out.uv = uv[idx];
+        return out;
+    }
+
+    @fragment
+    fn fmain(in: VertexOutput) -> @location(0) vec4f {
+        return textureSample(myTexture, mySampler, in.uv);
+    }
+`;
 
 // Initialize WebGPU
 const initWebGpu = async (): Promise<void> => {
@@ -51,6 +87,15 @@ const initWebGpu = async (): Promise<void> => {
         toneMapping: { mode: "extended" }
     });
 
+    // 创建离屏渲染纹理
+    offscreenTexture = device.createTexture({
+        size: [CANVAS_WIDTH, CANVAS_HEIGHT],
+        format,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST
+    });
+    offscreenTextureView = offscreenTexture.createView();
+
+
     // Pre-create pipeline and sampler to avoid recreation every frame
     pipeline = await createRenderPipeline();
     sampler = device.createSampler({
@@ -58,6 +103,30 @@ const initWebGpu = async (): Promise<void> => {
         minFilter: 'linear',
         addressModeU: 'clamp-to-edge',
         addressModeV: 'clamp-to-edge'
+    });
+
+    // Full-screen pipeline for blitting offscreenTexture to canvas
+    const fsModule = device.createShaderModule({ code: getFullScreenShaderCode() });
+    const fsBindGroupLayout = device.createBindGroupLayout({
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
+            { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: {} },
+        ]
+    });
+    const fsPipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [fsBindGroupLayout] });
+    fullScreenPipeline = device.createRenderPipeline({
+        layout: fsPipelineLayout,
+        vertex: { module: fsModule, entryPoint: "vmain" },
+        fragment: { module: fsModule, entryPoint: "fmain", targets: [{ format }] },
+        primitive: { topology: "triangle-list" }
+    });
+    // BindGroup 绑定离屏纹理
+    fullScreenBindGroup = device.createBindGroup({
+        layout: fsBindGroupLayout,
+        entries: [
+            { binding: 0, resource: sampler },
+            { binding: 1, resource: offscreenTexture.createView() },
+        ]
     });
 
     // Pre-allocate transform buffers for all grid cells
@@ -217,7 +286,7 @@ const storedTextures: { id: string, idx: number, frame: VideoFrame, texture: GPU
 
 // Render the grid with current textures
 const renderGrid = async () => {
-    if (!device || !context || !pipeline || !sampler) {
+    if (!device || !context || !pipeline || !sampler || !offscreenTextureView) {
         console.warn("WebGPU not fully initialized yet");
         return;
     }
@@ -252,30 +321,28 @@ const renderGrid = async () => {
             return; // No valid textures to render
         }
 
-        // Create command encoder and render pass
+        // 1. 先渲染到离屏纹理
+        if (!offscreenTexture) {
+            console.warn("offscreenTexture not initialized");
+            return;
+        }
         const commandEncoder = device.createCommandEncoder();
-        const textureView = context.getCurrentTexture().createView();
-
         const renderPass = commandEncoder.beginRenderPass({
             colorAttachments: [
                 {
-                    view: textureView,
+                    view: offscreenTextureView,
                     loadOp: "load",
                     storeOp: "store",
+                    clearValue: { r: 1, g: 1, b: 1, a: 1 }
                 },
             ],
         });
 
-        // Set the pipeline once
         renderPass.setPipeline(pipeline);
-
-        // Render each texture
         for (let i = 0; i < GRID_SIZE * GRID_SIZE; i++) {
             const textureData = textureMap.get(i);
             if (textureData) {
                 const { texture } = textureData;
-
-                // Update just the texture binding
                 const bindGroup = device.createBindGroup({
                     layout: pipeline.getBindGroupLayout(0),
                     entries: [
@@ -293,15 +360,32 @@ const renderGrid = async () => {
                         }
                     ]
                 });
-
                 renderPass.setBindGroup(0, bindGroup);
                 renderPass.draw(6, 1, 0, 0);
             }
         }
-
         renderPass.end();
 
-        // Submit the command buffer
+
+        // 2. 渲染到canvas（full-screen quad）
+        if (fullScreenPipeline && fullScreenBindGroup) {
+            const canvasView = context.getCurrentTexture().createView();
+            const pass = commandEncoder.beginRenderPass({
+                colorAttachments: [
+                    {
+                        view: canvasView,
+                        loadOp: "clear",
+                        storeOp: "store",
+                        clearValue: { r: 0, g: 0, b: 0, a: 1 }
+                    }
+                ]
+            });
+            pass.setPipeline(fullScreenPipeline);
+            pass.setBindGroup(0, fullScreenBindGroup);
+            pass.draw(6, 1, 0, 0);
+            pass.end();
+        }
+
         device.queue.submit([commandEncoder.finish()]);
 
         // Release frames efficiently after rendering is complete
@@ -331,7 +415,6 @@ initWebGpu().then(() => {
 // Handle shared texture events
 (window as any).textures.onSharedTexture(async (id: string, idx: number, imported: Electron.SharedTextureImported) => {
     const frame = imported.getVideoFrame() as VideoFrame;
-    imported.release();
 
     if (device) {
         const texture = device.importExternalTexture({
@@ -345,5 +428,7 @@ initWebGpu().then(() => {
     } else {
         frame.close()
     }
+
+    imported.release();
 });
 
