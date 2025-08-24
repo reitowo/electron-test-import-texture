@@ -1,1 +1,1 @@
-D:/Electron/src/electron/electron.d.ts
+/Volumes/Data/electron/src/electron/electron.d.ts
